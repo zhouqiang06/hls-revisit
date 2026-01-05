@@ -274,8 +274,8 @@ def get_meta(file_path: str):
 
 
 def find_tile_bounds(tile: str):
-    # gdf = geopandas.read_file(r"s3://maap-ops-workspace/shared/zhouqiang06/AuxData/Sentinel-2-Shapefile-Index-master/sentinel_2_index_shapefile.shp")
-    gdf = geopandas.read_file(r"/projects/my-public-bucket/AuxData/Sentinel-2-Shapefile-Index-master/sentinel_2_index_shapefile.shp")
+    gdf = geopandas.read_file(r"s3://maap-ops-workspace/shared/zhouqiang06/AuxData/Sentinel-2-Shapefile-Index-master/sentinel_2_index_shapefile.shp")
+    # gdf = geopandas.read_file(r"/projects/my-public-bucket/AuxData/Sentinel-2-Shapefile-Index-master/sentinel_2_index_shapefile.shp")
     bounds_list = [np.round(c, 3) for c in gdf[gdf["Name"]==tile].bounds.values[0]]
     return tuple(bounds_list)
 
@@ -477,8 +477,8 @@ def merge_tiles(file_list, out_name, preprocessing=True, dtype=np.float32, nodat
 
 
 def run(tile: str, start_date: str, end_date: str, save_dir: str, search_source="STAC"):
-    # save_dir = os.path.join(save_dir, tile[:2], tile[2], tile[3], tile[4])
-    save_dir = os.path.join(save_dir)
+    save_dir = os.path.join(save_dir, tile[:2], tile[2], tile[3], tile[4])
+    # save_dir = os.path.join(save_dir)
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
     out_revisit_all = os.path.join(save_dir, f'HLS.total.{tile}.revisit.median.date.tif')
