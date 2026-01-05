@@ -198,7 +198,7 @@ QA_BIT = {'cirrus': 0,
 'aerosol_h': 7
 }
 
-chunk_size = dict(band=1, x=1098, y=1098)
+chunk_size = dict(band=1, x=512, y=512)
 
 def mask_hls(qa_arr, mask_list=['cloud', 'adj_cloud', 'cloud shadow']):
     # This function takes the HLS QA array as input and exports the cloud mask array. 
