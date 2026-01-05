@@ -237,7 +237,7 @@ def get_geo(filepath, max_retries: int = 3, delay: int = 5, access_type="externa
     return None, None
 
 
-def saveGeoTiff(filename, data, template_file):
+def saveGeoTiff(filename, data, template_file, access_type="external"):
     if not os.path.exists(os.path.dirname(filename)):
         os.makedirs(os.path.dirname(filename))
     if os.path.exists(filename):
@@ -248,25 +248,30 @@ def saveGeoTiff(filename, data, template_file):
     else:
         nband, height_data, width_data = data.shape[0], data.shape[1], data.shape[2]
     try:
-        with rio.open(template_file) as ds:
-            output_transform, output_crs = ds.transform, ds.crs
-            profile = {
-                        'driver': 'GTiff',
-                        'dtype': data.dtype,
-                        'count': nband,  # Number of bands
-                        'height': height_data,
-                        'width': width_data,
-                        'crs': output_crs,
-                        'transform': output_transform,
-                        'compress': 'lzw' # Optional: add compression
-                    }
-        with rio.open(filename, 'w', **profile) as dst:
-            if nband == 1:
-                dst.write(data, 1)
-            else:
-                for i in range(nband):
-                    dst.write(data[i], i + 1)
-        return True
+        # Get session from credential manager if using direct bucket access
+        rasterio_env = {}
+        if access_type == "direct":
+            rasterio_env["session"] = _credential_manager.get_session()
+        with rio.Env(**rasterio_env):
+            with rio.open(template_file) as ds:
+                output_transform, output_crs = ds.transform, ds.crs
+                profile = {
+                            'driver': 'GTiff',
+                            'dtype': data.dtype,
+                            'count': nband,  # Number of bands
+                            'height': height_data,
+                            'width': width_data,
+                            'crs': output_crs,
+                            'transform': output_transform,
+                            'compress': 'lzw' # Optional: add compression
+                        }
+            with rio.open(filename, 'w', **profile) as dst:
+                if nband == 1:
+                    dst.write(data, 1)
+                else:
+                    for i in range(nband):
+                        dst.write(data[i], i + 1)
+            return True
     except Exception as e:
         print(f"An error occurred: {e}")
 
@@ -380,11 +385,11 @@ def get_tile_urls(tile:str, bandnum:int, start_date:str, end_date:str, access_ty
     return url_list
 
 
-def find_all_granules(tile: str, bandnum: int, start_date: str, end_date: str, search_source="STAC"):
+def find_all_granules(tile: str, bandnum: int, start_date: str, end_date: str, search_source="STAC", access_type="external"):
     if search_source.lower() == "stac":
         url_list = get_HLS_data(tile=tile, bandnum=bandnum, start_date=start_date, end_date=end_date)
     elif search_source.lower() == "earthaccess":
-        url_list = get_tile_urls(tile=tile, bandnum=bandnum, start_date=start_date, end_date=end_date, access_type="direct") # direct, or external
+        url_list = get_tile_urls(tile=tile, bandnum=bandnum, start_date=start_date, end_date=end_date, access_type=access_type) 
     else:
         print("search_source not recognized. Must be 'STAC' or 'earthaccess'.")
         # os._exit(1)
@@ -507,8 +512,8 @@ def run(tile: str, start_date: str, end_date: str, save_dir: str, search_source=
     # check if obs_count are processed
     if os.path.exists(out_revisit_all) and os.path.exists(out_revisit_clear) and os.path.exists(out_num_all) and os.path.exists(out_num_clear):
         return
-
-    img_list = find_all_granules(tile=tile, bandnum=8, start_date=start_date, end_date=end_date, search_source=search_source)['granule_path'].tolist()
+    access_type="external" # direct, or external
+    img_list = find_all_granules(tile=tile, bandnum=8, start_date=start_date, end_date=end_date, search_source=search_source, access_type=access_type)['granule_path'].tolist()
     if len(img_list) > 0:
         img_list = list(set(img_list)) # Remove duplicates from the list
         print(len(img_list), ' images found')
@@ -526,7 +531,7 @@ def run(tile: str, start_date: str, end_date: str, save_dir: str, search_source=
                 pre_date = datetime.strptime(os.path.basename(img_file).split('.')[3][:7], '%Y%j')
             else:
                 cur_date = datetime.strptime(os.path.basename(img_file).split('.')[3][:7], '%Y%j')
-                arr = load_band_retry(img_file, fill_value=QA_FILL).to_numpy()
+                arr = load_band_retry(img_file, fill_value=QA_FILL, access_type=access_type).to_numpy()
                 if arr is not None:
                     print('Calculating time difference for image ', (cur_date - pre_date).days, pre_date.strftime('%Y-%m-%d'), ' to ', cur_date.strftime('%Y-%m-%d'))
                     time_diff_arr[i_img-1, :, :] = (cur_date - pre_date).days
@@ -540,26 +545,26 @@ def run(tile: str, start_date: str, end_date: str, save_dir: str, search_source=
         print('time diff array stats (all obs):')
         median_arr = da.nanmedian(time_diff_arr_ma, axis=0)
         median_arr[median_arr==np.nan] = SR_FILL
-        saveGeoTiff(filename=out_revisit_all, data=median_arr, template_file=img_list[0])
+        saveGeoTiff(filename=out_revisit_all, data=median_arr, template_file=img_list[0], access_type=access_type)
         preproccess(out_revisit_all, factor=1/33)
 
         time_diff_arr_ma = da.ma.masked_array(data=time_diff_arr, mask=time_diff_mask_clear, fill_value=np.nan)
         median_arr = np.nanmedian(time_diff_arr_ma, axis=0)
         median_arr[median_arr==np.nan] = SR_FILL
-        saveGeoTiff(filename=out_revisit_clear, data=median_arr, template_file=img_list[0])
+        saveGeoTiff(filename=out_revisit_clear, data=median_arr, template_file=img_list[0], access_type=access_type)
         preproccess(out_revisit_clear, factor=1/33)
 
         del median_arr, time_diff_arr, time_diff_arr_ma
         ## save obs count file
-        saveGeoTiff(filename=out_num_all, data=da.sum(~time_diff_mask, axis=0), template_file=img_list[0])
-        saveGeoTiff(filename=out_num_clear, data=da.sum(~time_diff_mask_clear, axis=0), template_file=img_list[0])
+        saveGeoTiff(filename=out_num_all, data=da.sum(~time_diff_mask, axis=0), template_file=img_list[0], access_type=access_type)
+        saveGeoTiff(filename=out_num_clear, data=da.sum(~time_diff_mask_clear, axis=0), template_file=img_list[0], access_type=access_type)
         preproccess(out_num_all, factor=1/33)
         preproccess(out_num_clear, factor=1/33)
         ## save monthly clear count file
         for i in range(12):
             out_name = os.path.join(save_dir, f'HLS.{tile}.M{i+1}.num.obs.clear.tif')
             print('Monthly clear obs count for month ', i+1)
-            saveGeoTiff(filename=out_name, data=clear_mask_monthly[:, :, i], template_file=img_list[0])
+            saveGeoTiff(filename=out_name, data=clear_mask_monthly[:, :, i], template_file=img_list[0], access_type=access_type)
             preproccess(out_name, factor=1/33)
 
 
