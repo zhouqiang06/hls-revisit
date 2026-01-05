@@ -36,7 +36,6 @@ fi
 tile="$1"
 start_date="$2"
 end_date="$3"
-output_dir="$4"
 
 # Call the script using the absolute paths
 # Use the updated environment when calling 'uv run'
@@ -53,7 +52,7 @@ cmd=(
     --tile "${tile}"
     --start_date "${start_date}"
     --end_date "${end_date}"
-    --output_dir "${output_dir}"
+    --output_dir "${OUTPUT_DIR}"
 )
 
 # Execute the command with UV_PROJECT environment variable
