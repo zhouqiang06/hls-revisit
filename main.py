@@ -219,11 +219,22 @@ def mask_hls(qa_arr, mask_list=['cloud', 'adj_cloud', 'cloud shadow']):
     return msk > 0
 
 
-def get_geo(filepath):
-    # ds = gdal.Open(filepath)
-    # return ds.GetGeoTransform(), ds.GetProjection()
-    with rio.open(filepath) as ds:
-        return ds.transform, ds.crs
+def get_geo(filepath, max_retries: int = 3, delay: int = 5, access_type="external"):
+    for attempt in range(max_retries):
+        try:
+            # Get session from credential manager if using direct bucket access
+            rasterio_env = {}
+            if access_type == "direct":
+                rasterio_env["session"] = _credential_manager.get_session()
+            with rio.Env(**rasterio_env):
+                with rio.open(filepath) as ds:
+                    return ds.transform, ds.crs
+        except Exception as e:
+            logger.warning(f"Attempt {attempt + 1} failed for {filepath}: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(delay)
+    # raise RuntimeError(f"Failed to read {filepath} after {max_retries} attempts")
+    return None, None
 
 
 def saveGeoTiff(filename, data, template_file):
@@ -260,10 +271,15 @@ def saveGeoTiff(filename, data, template_file):
         print(f"An error occurred: {e}")
 
 
-def load_band_retry(tif_path: Path, max_retries: int = 3, delay: int = 5, fill_value=SR_FILL):
+def load_band_retry(tif_path: Path, max_retries: int = 3, delay: int = 5, fill_value=SR_FILL, access_type="external"):
     for attempt in range(max_retries):
         try:
-            return rxr.open_rasterio(tif_path, lock=False, chunks=chunk_size).squeeze()
+            # Get session from credential manager if using direct bucket access
+            rasterio_env = {}
+            if access_type == "direct":
+                rasterio_env["session"] = _credential_manager.get_session()
+            with rio.Env(**rasterio_env):
+                return rxr.open_rasterio(tif_path, lock=False, chunks=chunk_size).squeeze()
         except Exception as e:
             logger.warning(f"Attempt {attempt + 1} failed for {tif_path}: {e}")
             if attempt < max_retries - 1:
