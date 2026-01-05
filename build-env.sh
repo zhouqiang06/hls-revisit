@@ -6,8 +6,8 @@ set -euo pipefail
 command -v curl >/dev/null 2>&1 || { 
     echo "Installing curl..."
     conda install curl
-    conda install cxx-compiler
-    conda install -c conda-forge gdal
+    # conda install cxx-compiler
+    # conda install -c conda-forge gdal
 }
 
 # install uv
