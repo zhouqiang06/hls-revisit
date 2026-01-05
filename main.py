@@ -25,7 +25,7 @@ from datetime import datetime
 # from glob import glob
 
 import geopandas
-from osgeo import gdal
+# from osgeo import gdal
 import rasterio as rio
 import rioxarray as rxr
 import earthaccess
@@ -44,11 +44,11 @@ logging.getLogger("botocore").setLevel(logging.WARNING)
 logger = logging.getLogger("HLSComposite")
 
 # GDAL configurations used to successfully access LP DAAC Cloud Assets via vsicurl
-gdal.SetConfigOption('GDAL_HTTP_COOKIEFILE','~/cookies.txt')
-gdal.SetConfigOption('GDAL_HTTP_COOKIEJAR', '~/cookies.txt')
-gdal.SetConfigOption('GDAL_DISABLE_READDIR_ON_OPEN','EMPTY_DIR')
-gdal.SetConfigOption('CPL_VSIL_CURL_ALLOWED_EXTENSIONS','TIF')
-gdal.SetConfigOption('GDAL_HTTP_UNSAFESSL', 'YES')
+# gdal.SetConfigOption('GDAL_HTTP_COOKIEFILE','~/cookies.txt')
+# gdal.SetConfigOption('GDAL_HTTP_COOKIEJAR', '~/cookies.txt')
+# gdal.SetConfigOption('GDAL_DISABLE_READDIR_ON_OPEN','EMPTY_DIR')
+# gdal.SetConfigOption('CPL_VSIL_CURL_ALLOWED_EXTENSIONS','TIF')
+# gdal.SetConfigOption('GDAL_HTTP_UNSAFESSL', 'YES')
 
 GDAL_CONFIG = {
     "CPL_TMPDIR": "/tmp",
@@ -63,6 +63,9 @@ GDAL_CONFIG = {
     "VSI_CACHE": "TRUE",
     "VSI_CACHE_SIZE": "536870912",
     "GDAL_NUM_THREADS": "ALL_CPUS",
+    "GDAL_HTTP_COOKIEFILE": str(Path.home() / "cookies.txt"),
+    "GDAL_HTTP_COOKIEJAR": str(Path.home() / "cookies.txt"),
+    "GDAL_HTTP_UNSAFESSL": "YES",
     # "CPL_DEBUG": "ON" if debug else "OFF",
     # "CPL_CURL_VERBOSE": "YES" if debug else "NO",
 }
