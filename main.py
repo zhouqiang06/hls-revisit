@@ -368,7 +368,7 @@ def find_all_granules(tile: str, bandnum: int, start_date: str, end_date: str, s
     if search_source.lower() == "stac":
         url_list = get_HLS_data(tile=tile, bandnum=bandnum, start_date=start_date, end_date=end_date)
     elif search_source.lower() == "earthaccess":
-        url_list = get_tile_urls(tile=tile, bandnum=bandnum, start_date=start_date, end_date=end_date, access_type="external")
+        url_list = get_tile_urls(tile=tile, bandnum=bandnum, start_date=start_date, end_date=end_date, access_type="direct") # direct, or external
     else:
         print("search_source not recognized. Must be 'STAC' or 'earthaccess'.")
         # os._exit(1)
