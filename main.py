@@ -282,7 +282,8 @@ def load_band_retry(tif_path: Path, max_retries: int = 3, delay: int = 5, fill_v
             # Get session from credential manager if using direct bucket access
             rasterio_env = {}
             if access_type == "direct":
-                rasterio_env["session"] = _credential_manager.get_session()
+                print("load band retry, access_type=direct")
+                # rasterio_env["session"] = _credential_manager.get_session()
             with rio.Env(**rasterio_env):
                 # return rxr.open_rasterio(tif_path, lock=False, chunks=chunk_size, driver='GeoTiff').squeeze()
                 with rio.open('example.tif') as src:
