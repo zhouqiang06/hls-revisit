@@ -63,9 +63,9 @@ GDAL_CONFIG = {
     "VSI_CACHE": "TRUE",
     "VSI_CACHE_SIZE": "536870912",
     "GDAL_NUM_THREADS": "ALL_CPUS",
-    "GDAL_HTTP_COOKIEFILE": str(Path.home() / "cookies.txt"),
-    "GDAL_HTTP_COOKIEJAR": str(Path.home() / "cookies.txt"),
-    "GDAL_HTTP_UNSAFESSL": "YES",
+    # "GDAL_HTTP_COOKIEFILE": str(Path.home() / "cookies.txt"),
+    # "GDAL_HTTP_COOKIEJAR": str(Path.home() / "cookies.txt"),
+    # "GDAL_HTTP_UNSAFESSL": "YES",
     # "CPL_DEBUG": "ON" if debug else "OFF",
     # "CPL_CURL_VERBOSE": "YES" if debug else "NO",
 }
