@@ -304,7 +304,8 @@ def find_tile_bounds(tile: str):
     return tuple(bounds_list)
 
 
-def get_HLS_data(tile:str, bandnum:int, start_date:str, end_date:str):
+def get_HLS_data(tile:str, bandnum:int, start_date:str, end_date:str, access_type="external"):
+    print("Searching HLS STAC Geoparquet archive for HLS data...")
     # from rustac import DuckdbClient
     client = DuckdbClient(use_hive_partitioning=True)
     # configure duckdb to find S3 credentials
@@ -322,6 +323,8 @@ def get_HLS_data(tile:str, bandnum:int, start_date:str, end_date:str):
         bbox=find_tile_bounds(tile),
     )
     results = GetBandLists_HLS_STAC(response, tile, bandnum)
+    if access_type=="direct":
+        results = [r.replace(URL_PREFIX, "s3://") for r in results]
     return results
 
 
@@ -353,6 +356,7 @@ def filter_url(url: str, tile: str, band: str):
 
 
 def get_tile_urls(tile:str, bandnum:int, start_date:str, end_date:str, access_type="external"):
+    print("Searching EarthAccess for HLS data...")
     url_list = []
     try:
         results = earthaccess.search_data(short_name=f"HLSL30",
@@ -360,7 +364,8 @@ def get_tile_urls(tile:str, bandnum:int, start_date:str, end_date:str, access_ty
                                         temporal = (start_date, end_date), #"2022-07-17","2022-07-31"
                                         bounding_box = find_tile_bounds(tile), #bounding_box = (-51.96423,68.10554,-48.71969,70.70529)
                                         )
-    except:
+    except Exception as e:
+        print(f"An error occurred searching HLSL30: {e}")
         results = []
     if len(results) > 0:
         bands = dict({2:'B02', 3:'B03', 4:'B04', 5:'B05', 6:'B06', 7:'B07',8:'Fmask'})
@@ -374,20 +379,21 @@ def get_tile_urls(tile:str, bandnum:int, start_date:str, end_date:str, access_ty
                                         temporal = (start_date, end_date), #"2022-07-17","2022-07-31"
                                         bounding_box = find_tile_bounds(tile), #bounding_box = (-51.96423,68.10554,-48.71969,70.70529)
                                         )
-    except:
+    except Exception as e:
+        print(f"An error occurred searching HLSS30: {e}")
         results = []
     if len(results) > 0:
         bands = dict({2:'B02', 3:'B03', 4:'B04', 5:'B8A', 6:'B11', 7:'B12',8:'Fmask'})
         for rec in results:
             for url in rec.data_links(access=access_type):
                 if filter_url(url, tile, bands[bandnum]):
-                    url_list.append(url.replace(URL_PREFIX, "s3://"))
+                    url_list.append(url)
     return url_list
 
 
 def find_all_granules(tile: str, bandnum: int, start_date: str, end_date: str, search_source="STAC", access_type="external"):
     if search_source.lower() == "stac":
-        url_list = get_HLS_data(tile=tile, bandnum=bandnum, start_date=start_date, end_date=end_date)
+        url_list = get_HLS_data(tile=tile, bandnum=bandnum, start_date=start_date, end_date=end_date, access_type=access_type)
     elif search_source.lower() == "earthaccess":
         url_list = get_tile_urls(tile=tile, bandnum=bandnum, start_date=start_date, end_date=end_date, access_type=access_type) 
     else:
@@ -500,7 +506,7 @@ def merge_tiles(file_list, out_name, preprocessing=True, dtype=np.float32, nodat
 
 
 
-def run(tile: str, start_date: str, end_date: str, save_dir: str, search_source="STAC"):
+def run(tile: str, start_date: str, end_date: str, save_dir: str, search_source="STAC", access_type="direct"):
     save_dir = os.path.join(save_dir, tile[:2], tile[2], tile[3], tile[4])
     # save_dir = os.path.join(save_dir)
     if not os.path.exists(save_dir):
@@ -512,8 +518,9 @@ def run(tile: str, start_date: str, end_date: str, save_dir: str, search_source=
     # check if obs_count are processed
     if os.path.exists(out_revisit_all) and os.path.exists(out_revisit_clear) and os.path.exists(out_num_all) and os.path.exists(out_num_clear):
         return
-    access_type="external" # direct, or external
+    # access_type="direct" # direct, or external
     img_list = find_all_granules(tile=tile, bandnum=8, start_date=start_date, end_date=end_date, search_source=search_source, access_type=access_type)['granule_path'].tolist()
+    print(img_list[:3])
     if len(img_list) > 0:
         img_list = list(set(img_list)) # Remove duplicates from the list
         print(len(img_list), ' images found')
