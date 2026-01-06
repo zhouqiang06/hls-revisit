@@ -381,7 +381,7 @@ def get_tile_urls(tile:str, bandnum:int, start_date:str, end_date:str, access_ty
         for rec in results:
             for url in rec.data_links(access=access_type):
                 if filter_url(url, tile, bands[bandnum]):
-                    url_list.append(url)
+                    url_list.append(url.replace(URL_PREFIX, "s3://"))
     return url_list
 
 
