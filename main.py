@@ -25,7 +25,7 @@ from datetime import datetime
 # from glob import glob
 
 import geopandas
-# from osgeo import gdal
+import gdal
 import rasterio as rio
 import rioxarray as rxr
 import earthaccess
@@ -44,31 +44,31 @@ logging.getLogger("botocore").setLevel(logging.WARNING)
 logger = logging.getLogger("HLSComposite")
 
 # GDAL configurations used to successfully access LP DAAC Cloud Assets via vsicurl
-# gdal.SetConfigOption('GDAL_HTTP_COOKIEFILE','~/cookies.txt')
-# gdal.SetConfigOption('GDAL_HTTP_COOKIEJAR', '~/cookies.txt')
-# gdal.SetConfigOption('GDAL_DISABLE_READDIR_ON_OPEN','EMPTY_DIR')
-# gdal.SetConfigOption('CPL_VSIL_CURL_ALLOWED_EXTENSIONS','TIF')
-# gdal.SetConfigOption('GDAL_HTTP_UNSAFESSL', 'YES')
+gdal.SetConfigOption('GDAL_HTTP_COOKIEFILE','~/cookies.txt')
+gdal.SetConfigOption('GDAL_HTTP_COOKIEJAR', '~/cookies.txt')
+gdal.SetConfigOption('GDAL_DISABLE_READDIR_ON_OPEN','EMPTY_DIR')
+gdal.SetConfigOption('CPL_VSIL_CURL_ALLOWED_EXTENSIONS','TIF')
+gdal.SetConfigOption('GDAL_HTTP_UNSAFESSL', 'YES')
 
-GDAL_CONFIG = {
-    "CPL_TMPDIR": "/tmp",
-    "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": "TIF,GPKG,SHP,SHX,PRJ,DBF",
-    "GDAL_CACHEMAX": "512",
-    "GDAL_INGESTED_BYTES_AT_OPEN": "32768",
-    "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
-    "GDAL_HTTP_MERGE_CONSECUTIVE_RANGES": "YES",
-    "GDAL_HTTP_MULTIPLEX": "YES",
-    "GDAL_HTTP_VERSION": "2",
-    "PYTHONWARNINGS": "ignore",
-    "VSI_CACHE": "TRUE",
-    "VSI_CACHE_SIZE": "536870912",
-    "GDAL_NUM_THREADS": "ALL_CPUS",
-    # "GDAL_HTTP_COOKIEFILE": "~/cookies.txt",
-    # "GDAL_HTTP_COOKIEJAR": "~/cookies.txt",
-    # "GDAL_HTTP_UNSAFESSL": "YES",
-    # "CPL_DEBUG": "ON" if debug else "OFF",
-    # "CPL_CURL_VERBOSE": "YES" if debug else "NO",
-}
+# GDAL_CONFIG = {
+#     "CPL_TMPDIR": "/tmp",
+#  #    "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": "TIF,GPKG",
+#     "GDAL_CACHEMAX": "512",
+#     "GDAL_INGESTED_BYTES_AT_OPEN": "32768",
+#     "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
+#     "GDAL_HTTP_MERGE_CONSECUTIVE_RANGES": "YES",
+#     "GDAL_HTTP_MULTIPLEX": "YES",
+#     "GDAL_HTTP_VERSION": "2",
+#     "PYTHONWARNINGS": "ignore",
+#     "VSI_CACHE": "TRUE",
+#     "VSI_CACHE_SIZE": "536870912",
+#     "GDAL_NUM_THREADS": "ALL_CPUS",
+#     "GDAL_HTTP_COOKIEFILE": str(Path.home() / "cookies.txt"),
+#     "GDAL_HTTP_COOKIEJAR": str(Path.home() / "cookies.txt"),
+#     "GDAL_HTTP_UNSAFESSL": "YES",
+#     # "CPL_DEBUG": "ON" if debug else "OFF",
+#     # "CPL_CURL_VERBOSE": "YES" if debug else "NO",
+# }
 
 # LPCLOUD S3 CREDENTIAL REFRESH
 CREDENTIAL_REFRESH_SECONDS = 50 * 60
@@ -280,13 +280,12 @@ def load_band_retry(tif_path: Path, max_retries: int = 3, delay: int = 5, fill_v
     for attempt in range(max_retries):
         try:
             # Get session from credential manager if using direct bucket access
-            rasterio_env = {}
-            if access_type == "direct":
-                rasterio_env["session"] = _credential_manager.get_session()
-            with rio.Env(**rasterio_env):
-                # return rxr.open_rasterio(tif_path, lock=False, chunks=chunk_size, driver='GeoTiff').squeeze()
-                with rio.open('example.tif') as src:
-                    return src.read(1)
+            return rxr.open_rasterio(tif_path, lock=False, chunks=chunk_size, driver='GeoTiff').squeeze()
+            # rasterio_env = {}
+            # if access_type == "direct":
+            #     rasterio_env["session"] = _credential_manager.get_session()
+            # with rio.Env(**rasterio_env):
+            #     return rxr.open_rasterio(tif_path, lock=False, chunks=chunk_size, driver='GeoTiff').squeeze()
         except Exception as e:
             logger.warning(f"Attempt {attempt + 1} failed for {tif_path}: {e}")
             if attempt < max_retries - 1:
@@ -300,8 +299,8 @@ def get_meta(file_path: str):
 
 
 def find_tile_bounds(tile: str):
-    gdf = geopandas.read_file(r"s3://maap-ops-workspace/shared/zhouqiang06/AuxData/Sentinel-2-Shapefile-Index-master/sentinel_2_index_shapefile.shp")
-    # gdf = geopandas.read_file(r"/projects/my-public-bucket/AuxData/Sentinel-2-Shapefile-Index-master/sentinel_2_index_shapefile.shp")
+    # gdf = geopandas.read_file(r"s3://maap-ops-workspace/shared/zhouqiang06/AuxData/Sentinel-2-Shapefile-Index-master/sentinel_2_index_shapefile.shp")
+    gdf = geopandas.read_file(r"/projects/my-public-bucket/AuxData/Sentinel-2-Shapefile-Index-master/sentinel_2_index_shapefile.shp")
     bounds_list = [np.round(c, 3) for c in gdf[gdf["Name"]==tile].bounds.values[0]]
     return tuple(bounds_list)
 
@@ -613,10 +612,10 @@ if __name__ == "__main__":
 
     output_dir = Path(args.output_dir)
 
-    logger.info(
-        f"setting GDAL config environment variables:\n{json.dumps(GDAL_CONFIG, indent=2)}"
-    )
-    os.environ.update(GDAL_CONFIG)
+    # logger.info(
+    #     f"setting GDAL config environment variables:\n{json.dumps(GDAL_CONFIG, indent=2)}"
+    # )
+    # os.environ.update(GDAL_CONFIG)
 
     logger.info(
         f"running with mgrs_tile: {args.tile}, start_datetime: {args.start_date}, end_datetime: {args.end_date}"
