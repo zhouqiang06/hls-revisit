@@ -98,7 +98,7 @@ class CredentialManager:
                 self._credentials = self._fetch_credentials()
                 self._fetch_time = now
                 self._session = AWSSession(**self._credentials)
-
+            os.environ.update(GDAL_CONFIG) # update GDAL environ variables when credentials are refreshed
             return self._session
 
     @staticmethod
@@ -615,7 +615,7 @@ if __name__ == "__main__":
     logger.info(
         f"setting GDAL config environment variables:\n{json.dumps(GDAL_CONFIG, indent=2)}"
     )
-    os.environ.update(GDAL_CONFIG)
+    # os.environ.update(GDAL_CONFIG)
 
     logger.info(
         f"running with mgrs_tile: {args.tile}, start_datetime: {args.start_date}, end_datetime: {args.end_date}"
