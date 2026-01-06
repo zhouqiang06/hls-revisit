@@ -284,7 +284,9 @@ def load_band_retry(tif_path: Path, max_retries: int = 3, delay: int = 5, fill_v
             if access_type == "direct":
                 rasterio_env["session"] = _credential_manager.get_session()
             with rio.Env(**rasterio_env):
-                return rxr.open_rasterio(tif_path, lock=False, chunks=chunk_size, driver='GeoTiff').squeeze()
+                # return rxr.open_rasterio(tif_path, lock=False, chunks=chunk_size, driver='GeoTiff').squeeze()
+                with rio.open('example.tif') as src:
+                    return src.read(1)
         except Exception as e:
             logger.warning(f"Attempt {attempt + 1} failed for {tif_path}: {e}")
             if attempt < max_retries - 1:
