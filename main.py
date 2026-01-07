@@ -681,7 +681,7 @@ def run(tile: str, start_date: str, end_date: str, save_dir: str, search_source=
         for i in range(12):
             out_name = os.path.join(save_dir, f'HLS.{tile}.M{i+1}.num.obs.clear.tif')
             print('Monthly clear obs count for month ', i+1)
-            saveGeoTiff(filename=out_name, data=clear_mask_monthly[:, :, i], template_file=img_list[0], access_type=access_type)
+            saveGeoTiff(filename=out_name, data=clear_mask_monthly[i, :, :], template_file=img_list[0], access_type=access_type)
             preproccess(out_name, factor=1/33)
 
 
