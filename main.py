@@ -660,7 +660,7 @@ def run(tile: str, start_date: str, end_date: str, save_dir: str, search_source=
         saveGeoTiff(filename=out_revisit_all, data=median_arr, template_file=img_list[0], access_type=access_type)
         preproccess(out_revisit_all, factor=1/33)
 
-        saveGeoTiff(filename=os.path.join(save_dir, "time_diff_arr_ma.tif"), data=time_diff_arr_ma, template_file=img_list[0], access_type=access_type)
+        saveGeoTiff(filename=os.path.join(save_dir, "time_diff_arr_ma.tif"), data=time_diff_arr, template_file=img_list[0], access_type=access_type)
 
         # time_diff_arr_ma = da.ma.masked_array(data=time_diff_arr, mask=time_diff_mask_clear, fill_value=np.nan)
         time_diff_arr[time_diff_mask_clear==True] = np.nan
@@ -669,9 +669,9 @@ def run(tile: str, start_date: str, end_date: str, save_dir: str, search_source=
         saveGeoTiff(filename=out_revisit_clear, data=median_arr, template_file=img_list[0], access_type=access_type)
         preproccess(out_revisit_clear, factor=1/33)
 
-        saveGeoTiff(filename=os.path.join(save_dir, "time_diff_arr_ma_clear.tif"), data=time_diff_arr_ma, template_file=img_list[0], access_type=access_type)
+        saveGeoTiff(filename=os.path.join(save_dir, "time_diff_arr_ma_clear.tif"), data=time_diff_arr, template_file=img_list[0], access_type=access_type)
 
-        del median_arr, time_diff_arr, time_diff_arr_ma
+        del median_arr, time_diff_arr#, time_diff_arr_ma
         ## save obs count file
         saveGeoTiff(filename=out_num_all, data=da.sum(~time_diff_mask, axis=0), template_file=img_list[0], access_type=access_type)
         saveGeoTiff(filename=out_num_clear, data=da.sum(~time_diff_mask_clear, axis=0), template_file=img_list[0], access_type=access_type)
