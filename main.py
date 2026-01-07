@@ -652,19 +652,19 @@ def run(tile: str, start_date: str, end_date: str, save_dir: str, search_source=
                     clear_mask_monthly[img_month-1, :, :] += (~clear_mask).astype(np.uint8)
                 pre_date = cur_date
             ## save revisit interval file
-        time_diff_arr_ma = da.ma.masked_array(data=time_diff_arr, mask=time_diff_mask, fill_value=np.nan)
-        time_diff_arr_ma = time_diff_arr_ma.filled(fill_value=np.nan)
+        # time_diff_arr_ma = da.ma.masked_array(data=time_diff_arr, mask=time_diff_mask, fill_value=np.nan)
+        time_diff_arr[time_diff_mask==True] = np.nan
         print('time diff array stats (all obs):')
-        median_arr = da.nanmedian(time_diff_arr_ma, axis=0)
+        median_arr = da.nanmedian(time_diff_arr, axis=0)
         median_arr[median_arr==np.nan] = SR_FILL
         saveGeoTiff(filename=out_revisit_all, data=median_arr, template_file=img_list[0], access_type=access_type)
         preproccess(out_revisit_all, factor=1/33)
 
         saveGeoTiff(filename=os.path.join(save_dir, "time_diff_arr_ma.tif"), data=time_diff_arr_ma, template_file=img_list[0], access_type=access_type)
 
-        time_diff_arr_ma = da.ma.masked_array(data=time_diff_arr, mask=time_diff_mask_clear, fill_value=np.nan)
-        time_diff_arr_ma = time_diff_arr_ma.filled(fill_value=np.nan)
-        median_arr = np.nanmedian(time_diff_arr_ma, axis=0)
+        # time_diff_arr_ma = da.ma.masked_array(data=time_diff_arr, mask=time_diff_mask_clear, fill_value=np.nan)
+        time_diff_arr[time_diff_mask_clear==True] = np.nan
+        median_arr = np.nanmedian(time_diff_arr, axis=0)
         median_arr[median_arr==np.nan] = SR_FILL
         saveGeoTiff(filename=out_revisit_clear, data=median_arr, template_file=img_list[0], access_type=access_type)
         preproccess(out_revisit_clear, factor=1/33)
