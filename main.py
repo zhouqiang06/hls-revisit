@@ -52,7 +52,7 @@ logger = logging.getLogger("HLSComposite")
 
 GDAL_CONFIG = {
     "CPL_TMPDIR": "/tmp",
- #    "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": "TIF,GPKG",
+    "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif,.gpkg,.shp,.shx,.prj.dbf,.json,.geojson,.parquet",
     "GDAL_CACHEMAX": "512",
     "GDAL_INGESTED_BYTES_AT_OPEN": "32768",
     "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
@@ -63,9 +63,9 @@ GDAL_CONFIG = {
     "VSI_CACHE": "TRUE",
     "VSI_CACHE_SIZE": "536870912",
     "GDAL_NUM_THREADS": "ALL_CPUS",
-    "GDAL_HTTP_COOKIEFILE": str(Path.home() / "cookies.txt"),
-    "GDAL_HTTP_COOKIEJAR": str(Path.home() / "cookies.txt"),
-    "GDAL_HTTP_UNSAFESSL": "YES",
+    # "GDAL_HTTP_COOKIEFILE": str(Path.home() / "cookies.txt"),
+    # "GDAL_HTTP_COOKIEJAR": str(Path.home() / "cookies.txt"),
+    # "GDAL_HTTP_UNSAFESSL": "YES",
     # "CPL_DEBUG": "ON" if debug else "OFF",
     # "CPL_CURL_VERBOSE": "YES" if debug else "NO",
 }
@@ -98,7 +98,7 @@ class CredentialManager:
                 self._credentials = self._fetch_credentials()
                 self._fetch_time = now
                 self._session = AWSSession(**self._credentials)
-            # os.environ.update(GDAL_CONFIG) # update GDAL environ variables when credentials are refreshed
+
             return self._session
 
     @staticmethod
@@ -127,6 +127,23 @@ DTYPE = "int16"
 FMASK_DTYPE = "uint8"
 NODATA = -9999
 FMASK_NODATA = 255
+
+sr_scale = 0.0001
+ang_scale = 0.01
+SR_FILL = -9999
+QA_FILL = 255 #FMASK_FILL
+
+QA_BIT = {'cirrus': 0,
+'cloud': 1,
+'adj_cloud': 2,
+'cloud shadow':3,
+'snowice':4,
+'water':5,
+'aerosol_l': 6,
+'aerosol_h': 7
+}
+
+chunk_size = dict(band=1, x=512, y=512)
 
 BAND_MAPPING = {
     "HLSL30_2.0": {
@@ -172,6 +189,107 @@ DEFAULT_BANDS = [
 DEFAULT_RESOLUTION = 30
 
 
+def get_stac_items(
+    mgrs_tile: str, start_datetime: datetime, end_datetime: datetime
+) -> list[Item]:
+    logger.info("querying HLS archive")
+    client = DuckdbClient(use_hive_partitioning=True)
+    client.execute(
+        """
+        CREATE OR REPLACE SECRET secret (
+             TYPE S3,
+             PROVIDER CREDENTIAL_CHAIN
+        );
+        """
+    )
+
+    items = []
+    for collection in HLS_COLLECTIONS:
+        items.extend(
+            client.search(
+                href=HLS_STAC_GEOPARQUET_HREF.format(collection=collection),
+                datetime="/".join(
+                    dt.isoformat() for dt in [start_datetime, end_datetime]
+                ),
+                filter={
+                    "op": "and",
+                    "args": [
+                        {
+                            "op": "like",
+                            "args": [{"property": "id"}, f"%.T{mgrs_tile}.%"],
+                        },
+                        {
+                            "op": "between",
+                            "args": [
+                                {"property": "year"},
+                                start_datetime.year,
+                                end_datetime.year,
+                            ],
+                        },
+                    ],
+                },
+            )
+        )
+
+    logger.info(f"found {len(items)} items")
+
+    return [Item.from_dict(item) for item in items]
+
+
+def fetch_single_asset(
+    asset_href: str,
+    fill_value=SR_FILL,
+    direct_bucket_access: bool = False,
+):
+    """
+    Fetch data from a single asset.
+    """
+    try:
+        # Get session from credential manager if using direct bucket access
+        rasterio_env = {}
+        if direct_bucket_access:
+            rasterio_env["session"] = _credential_manager.get_session()
+
+        with rio.Env(**rasterio_env):
+            # return rxr.open_rasterio(asset_href, lock=False, chunks=chunk_size, driver='GTiff').squeeze()
+            with rio.open(asset_href) as src:
+                return da.from_array(src.read(1), chunks=chunk_size)
+            #     raster_crs = src.crs.to_string()
+            #     xs_4326, ys_4326 = zip(*coords_4326)
+            #     xs_proj, ys_proj = transform("EPSG:4326", raster_crs, xs_4326, ys_4326)
+            #     coords_proj = list(zip(xs_proj, ys_proj))
+
+            #     values = list(src.sample(coords_proj))
+
+            #     return item_id, band_name, [v[0] for v in values]
+
+    except Exception as e:
+        logger.warning(f"Failed to read {asset_href}: {e}")
+        return np.zeros((3660, 3660)) + fill_value
+
+
+def fetch_with_retry(asset_href: Path, max_retries: int = 3, delay: int = 5, fill_value=SR_FILL, access_type="external"):
+    for attempt in range(max_retries):
+        try:
+            return fetch_single_asset(
+                asset_href=asset_href,
+                fill_value=fill_value,
+                direct_bucket_access=(access_type == "direct"),
+            )
+        except Exception as e:
+            if attempt < max_retries - 1:
+                wait_time = delay * (2**attempt)
+                logger.warning(
+                    f"Link {asset_href} attempt {attempt + 1}/{max_retries} failed: {e}. "
+                    f"Retrying in {wait_time} seconds..."
+                )
+                time.sleep(wait_time)
+            else:
+                logger.error(
+                    f"All {max_retries} attempts failed for {asset_href}. Last error: {e}"
+                )
+                return np.zeros((3660, 3660)) + fill_value
+
 
 common_bands = ["Blue","Green","Red","NIR_Narrow","SWIR1", "SWIR2", "Fmask"]
 
@@ -186,22 +304,6 @@ S2_name2index = {'Coastal_Aerosol': 'B01', 'Blue': 'B02', 'Green': 'B03', 'Red':
                  'NIR_Edge1': 'B05', 'NIR_Edge2': 'B06', 'NIR_Edge3': 'B07', 
                   'NIR_Broad': 'B08', 'NIR_Narrow': 'B8A', 'SWIR1': 'B11', 'SWIR2': 'B12', 'Fmask': 'Fmask'}
 
-sr_scale = 0.0001
-ang_scale = 0.01
-SR_FILL = -9999
-QA_FILL = 255 #FMASK_FILL
-
-QA_BIT = {'cirrus': 0,
-'cloud': 1,
-'adj_cloud': 2,
-'cloud shadow':3,
-'snowice':4,
-'water':5,
-'aerosol_l': 6,
-'aerosol_h': 7
-}
-
-chunk_size = dict(band=1, x=512, y=512)
 
 def mask_hls(qa_arr, mask_list=['cloud', 'adj_cloud', 'cloud shadow']):
     # This function takes the HLS QA array as input and exports the cloud mask array. 
@@ -280,12 +382,12 @@ def load_band_retry(tif_path: Path, max_retries: int = 3, delay: int = 5, fill_v
     for attempt in range(max_retries):
         try:
             # Get session from credential manager if using direct bucket access
-            # return rxr.open_rasterio(tif_path, lock=False, chunks=chunk_size).squeeze()
+            # return rxr.open_rasterio(tif_path, lock=False, chunks=chunk_size, driver='GTiff').squeeze()
             rasterio_env = {}
             if access_type == "direct":
                 rasterio_env["session"] = _credential_manager.get_session()
             with rio.Env(**rasterio_env):
-                return rxr.open_rasterio(tif_path, lock=False, chunks=chunk_size, driver='GTiff').squeeze().load()
+                return rxr.open_rasterio(tif_path, lock=False, chunks=chunk_size, driver='GTiff').squeeze()
         except Exception as e:
             logger.warning(f"Attempt {attempt + 1} failed for {tif_path}: {e}")
             if attempt < max_retries - 1:
@@ -299,8 +401,8 @@ def get_meta(file_path: str):
 
 
 def find_tile_bounds(tile: str):
-    gdf = geopandas.read_file(r"s3://maap-ops-workspace/shared/zhouqiang06/AuxData/Sentinel-2-Shapefile-Index-master/sentinel_2_index_shapefile.shp")
-    # gdf = geopandas.read_file(r"/projects/my-public-bucket/AuxData/Sentinel-2-Shapefile-Index-master/sentinel_2_index_shapefile.shp")
+    # gdf = geopandas.read_file(r"s3://maap-ops-workspace/shared/zhouqiang06/AuxData/Sentinel-2-Shapefile-Index-master/sentinel_2_index_shapefile.shp")
+    gdf = geopandas.read_file(r"/projects/my-public-bucket/AuxData/Sentinel-2-Shapefile-Index-master/sentinel_2_index_shapefile.shp")
     bounds_list = [np.round(c, 3) for c in gdf[gdf["Name"]==tile].bounds.values[0]]
     return tuple(bounds_list)
 
@@ -539,9 +641,10 @@ def run(tile: str, start_date: str, end_date: str, save_dir: str, search_source=
                 pre_date = datetime.strptime(os.path.basename(img_file).split('.')[3][:7], '%Y%j')
             else:
                 cur_date = datetime.strptime(os.path.basename(img_file).split('.')[3][:7], '%Y%j')
-                arr = load_band_retry(img_file, fill_value=QA_FILL, access_type=access_type).to_numpy()
+                # arr = load_band_retry(img_file, fill_value=QA_FILL, access_type=access_type).to_numpy()
+                arr = fetch_with_retry(img_file, fill_value=QA_FILL, access_type=access_type)#.to_numpy()
                 if arr is not None:
-                    print('Calculating time difference for image ', (cur_date - pre_date).days, pre_date.strftime('%Y-%m-%d'), ' to ', cur_date.strftime('%Y-%m-%d'))
+                    # print('Calculating time difference for image ', (cur_date - pre_date).days, pre_date.strftime('%Y-%m-%d'), ' to ', cur_date.strftime('%Y-%m-%d'))
                     time_diff_arr[i_img-1, :, :] = (cur_date - pre_date).days
                     time_diff_mask[i_img-1, :, :] = (arr == QA_FILL)
                     clear_mask = (arr == QA_FILL) | mask_hls(arr, mask_list=['cloud', 'adj_cloud', 'cloud shadow'])
