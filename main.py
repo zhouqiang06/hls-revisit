@@ -98,7 +98,7 @@ class CredentialManager:
                 self._credentials = self._fetch_credentials()
                 self._fetch_time = now
                 self._session = AWSSession(**self._credentials)
-            os.environ.update(GDAL_CONFIG) # update GDAL environ variables when credentials are refreshed
+            # os.environ.update(GDAL_CONFIG) # update GDAL environ variables when credentials are refreshed
             return self._session
 
     @staticmethod
@@ -285,7 +285,7 @@ def load_band_retry(tif_path: Path, max_retries: int = 3, delay: int = 5, fill_v
             if access_type == "direct":
                 rasterio_env["session"] = _credential_manager.get_session()
             with rio.Env(**rasterio_env):
-                return rxr.open_rasterio(tif_path, lock=False, chunks=chunk_size).squeeze()
+                return rxr.open_rasterio(tif_path, lock=False, chunks=chunk_size).squeeze().load()
         except Exception as e:
             logger.warning(f"Attempt {attempt + 1} failed for {tif_path}: {e}")
             if attempt < max_retries - 1:
@@ -615,7 +615,7 @@ if __name__ == "__main__":
     logger.info(
         f"setting GDAL config environment variables:\n{json.dumps(GDAL_CONFIG, indent=2)}"
     )
-    # os.environ.update(GDAL_CONFIG)
+    os.environ.update(GDAL_CONFIG)
 
     logger.info(
         f"running with mgrs_tile: {args.tile}, start_datetime: {args.start_date}, end_datetime: {args.end_date}"
