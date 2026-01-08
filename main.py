@@ -401,8 +401,8 @@ def get_meta(file_path: str):
 
 
 def find_tile_bounds(tile: str):
-    gdf = geopandas.read_file(r"s3://maap-ops-workspace/shared/zhouqiang06/AuxData/Sentinel-2-Shapefile-Index-master/sentinel_2_index_shapefile.shp")
-    # gdf = geopandas.read_file(r"/projects/my-public-bucket/AuxData/Sentinel-2-Shapefile-Index-master/sentinel_2_index_shapefile.shp")
+    # gdf = geopandas.read_file(r"s3://maap-ops-workspace/shared/zhouqiang06/AuxData/Sentinel-2-Shapefile-Index-master/sentinel_2_index_shapefile.shp")
+    gdf = geopandas.read_file(r"/projects/my-public-bucket/AuxData/Sentinel-2-Shapefile-Index-master/sentinel_2_index_shapefile.shp")
     bounds_list = [np.round(c, 3) for c in gdf[gdf["Name"]==tile].bounds.values[0]]
     return tuple(bounds_list)
 
@@ -660,7 +660,7 @@ def run(tile: str, start_date: str, end_date: str, save_dir: str, search_source=
         saveGeoTiff(filename=out_revisit_all, data=median_arr, template_file=img_list[0], access_type=access_type)
         preproccess(out_revisit_all, factor=1/33)
 
-        # saveGeoTiff(filename=os.path.join(save_dir, "time_diff_arr_ma.tif"), data=time_diff_arr, template_file=img_list[0], access_type=access_type)
+        saveGeoTiff(filename=os.path.join(save_dir, "time_diff_arr_ma.tif"), data=time_diff_arr, template_file=img_list[0], access_type=access_type)
 
         # time_diff_arr_ma = da.ma.masked_array(data=time_diff_arr, mask=time_diff_mask_clear, fill_value=np.nan)
         time_diff_arr[time_diff_mask_clear==True] = np.nan
@@ -669,7 +669,7 @@ def run(tile: str, start_date: str, end_date: str, save_dir: str, search_source=
         saveGeoTiff(filename=out_revisit_clear, data=median_arr, template_file=img_list[0], access_type=access_type)
         preproccess(out_revisit_clear, factor=1/33)
 
-        # saveGeoTiff(filename=os.path.join(save_dir, "time_diff_arr_ma_clear.tif"), data=time_diff_arr, template_file=img_list[0], access_type=access_type)
+        saveGeoTiff(filename=os.path.join(save_dir, "time_diff_arr_ma_clear.tif"), data=time_diff_arr, template_file=img_list[0], access_type=access_type)
 
         del median_arr, time_diff_arr#, time_diff_arr_ma
         ## save obs count file
@@ -709,13 +709,21 @@ if __name__ == "__main__":
         type=str,
     )
     parse.add_argument(
-        "--output_dir", help="Directory in which to save output", required=True
+        "--output_dir", 
+        help="Directory in which to save output", 
+        required=True
     )
     parse.add_argument(
         "--search_source",
         help="Either STAC or earthaccess to search for HLS granules",
-        action="store_true",
-        default="STAC",
+        type=str,
+        default="earthaccess",
+    )
+    parse.add_argument(
+        "--access_type",
+        help="Either external (from http) or direct (from S3) to search for HLS granules",
+        type=str,
+        default="direct",
     )
     args = parse.parse_args()
 
@@ -736,4 +744,5 @@ if __name__ == "__main__":
         end_date=args.end_date,
         save_dir=output_dir,
         search_source=args.search_source,
+        access_type=args.access_type,
     )
