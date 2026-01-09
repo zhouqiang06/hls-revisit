@@ -15,6 +15,8 @@ from maap.maap import MAAP
 from pystac import Asset, Catalog, CatalogType, Item
 from rasterio.session import AWSSession
 from rustac import DuckdbClient
+import boto3
+from cachetools import FIFOCache, cached
 
 import os
 from pathlib import Path
@@ -28,6 +30,8 @@ import geopandas
 # from osgeo import gdal
 import rasterio as rio
 import rioxarray as rxr
+from rio_tiler.io import COGReader, Reader
+
 import earthaccess
 
 import dask.array as da
@@ -189,6 +193,31 @@ DEFAULT_BANDS = [
 DEFAULT_RESOLUTION = 30
 
 
+@cached(cache=FIFOCache(maxsize=1), key=lambda creds: creds["sessionToken"])
+def get_aws_session_DAAC(creds):
+    """Create a Rasterio AWS Session with Credentials"""
+    #creds = maap.aws.earthdata_s3_credentials('https://data.lpdaac.earthdatacloud.nasa.gov/s3credentials')
+    boto3_session = boto3.Session(
+        aws_access_key_id=creds['accessKeyId'], 
+        aws_secret_access_key=creds['secretAccessKey'],
+        aws_session_token=creds['sessionToken'],
+        region_name='us-west-2'
+    )
+    return AWSSession(boto3_session)
+
+
+def get_creds_DAAC():
+    maap = MAAP(maap_host="api.maap-project.org")
+    return maap.aws.earthdata_s3_credentials(
+        'https://data.lpdaac.earthdatacloud.nasa.gov/s3credentials'
+    )
+
+
+def renew_session(comp_type):
+    aws_session = get_aws_session_DAAC(get_creds_DAAC())
+    return aws_session   
+
+
 def get_stac_items(
     mgrs_tile: str, start_datetime: datetime, end_datetime: datetime
 ) -> list[Item]:
@@ -288,7 +317,7 @@ def fetch_with_retry(asset_href: Path, max_retries: int = 3, delay: int = 5, fil
                 logger.error(
                     f"All {max_retries} attempts failed for {asset_href}. Last error: {e}"
                 )
-                return np.zeros((3660, 3660)) + fill_value
+                return np.full((3660, 3660), fill_value)
 
 
 common_bands = ["Blue","Green","Red","NIR_Narrow","SWIR1", "SWIR2", "Fmask"]
@@ -387,7 +416,9 @@ def load_band_retry(tif_path: Path, max_retries: int = 3, delay: int = 5, fill_v
             if access_type == "direct":
                 rasterio_env["session"] = _credential_manager.get_session()
             with rio.Env(**rasterio_env):
-                return rxr.open_rasterio(tif_path, lock=False, chunks=chunk_size, driver='GTiff').squeeze()
+                # return rxr.open_rasterio(tif_path, lock=False, chunks=chunk_size, driver='GTiff').squeeze()
+                with Reader(tif_path) as src:
+                    return da.from_array(src.read(1), chunks=chunk_size)
         except Exception as e:
             logger.warning(f"Attempt {attempt + 1} failed for {tif_path}: {e}")
             if attempt < max_retries - 1:
@@ -401,8 +432,8 @@ def get_meta(file_path: str):
 
 
 def find_tile_bounds(tile: str):
-    gdf = geopandas.read_file(r"s3://maap-ops-workspace/shared/zhouqiang06/AuxData/Sentinel-2-Shapefile-Index-master/sentinel_2_index_shapefile.shp")
-    # gdf = geopandas.read_file(r"/projects/my-public-bucket/AuxData/Sentinel-2-Shapefile-Index-master/sentinel_2_index_shapefile.shp")
+    # gdf = geopandas.read_file(r"s3://maap-ops-workspace/shared/zhouqiang06/AuxData/Sentinel-2-Shapefile-Index-master/sentinel_2_index_shapefile.shp")
+    gdf = geopandas.read_file(r"/projects/my-public-bucket/AuxData/Sentinel-2-Shapefile-Index-master/sentinel_2_index_shapefile.shp")
     bounds_list = [np.round(c, 3) for c in gdf[gdf["Name"]==tile].bounds.values[0]]
     return tuple(bounds_list)
 
@@ -641,8 +672,8 @@ def run(tile: str, start_date: str, end_date: str, save_dir: str, search_source=
                 pre_date = datetime.strptime(os.path.basename(img_file).split('.')[3][:7], '%Y%j')
             else:
                 cur_date = datetime.strptime(os.path.basename(img_file).split('.')[3][:7], '%Y%j')
-                # arr = load_band_retry(img_file, fill_value=QA_FILL, access_type=access_type).to_numpy()
-                arr = fetch_with_retry(img_file, fill_value=QA_FILL, access_type=access_type)#.to_numpy()
+                arr = load_band_retry(img_file, fill_value=QA_FILL, access_type=access_type).to_numpy()
+                # arr = fetch_with_retry(img_file, fill_value=QA_FILL, access_type=access_type)#.to_numpy()
                 if arr is not None:
                     print('Calculating time difference for image ', (cur_date - pre_date).days, pre_date.strftime('%Y-%m-%d'), ' to ', cur_date.strftime('%Y-%m-%d'))
                     time_diff_arr[i_img-1, :, :] = (cur_date - pre_date).days
