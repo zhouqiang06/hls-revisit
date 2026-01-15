@@ -30,7 +30,7 @@ import geopandas
 # from osgeo import gdal
 import rasterio as rio
 import rioxarray as rxr
-from rio_tiler.io import COGReader, Reader
+# from rio_tiler.io import COGReader, Reader
 
 import earthaccess
 
