@@ -36,6 +36,7 @@ fi
 tile="$1"
 start_date="$2"
 end_date="$3"
+search_source="$4"
 
 # Call the script using the absolute paths
 # Use the updated environment when calling 'uv run'
@@ -53,6 +54,7 @@ cmd=(
     --start_date "${start_date}"
     --end_date "${end_date}"
     --output_dir "${OUTPUT_DIR}"
+    --search_source "${search_source}"
 )
 
 # Execute the command with UV_PROJECT environment variable
