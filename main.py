@@ -15,8 +15,8 @@ from maap.maap import MAAP
 from pystac import Asset, Catalog, CatalogType, Item
 from rasterio.session import AWSSession
 from rustac import DuckdbClient
-import boto3
-from cachetools import FIFOCache, cached
+# import boto3
+# from cachetools import FIFOCache, cached
 
 import os
 from pathlib import Path
@@ -147,7 +147,7 @@ QA_BIT = {'cirrus': 0,
 'aerosol_h': 7
 }
 
-chunk_size = dict(band=1, x=256, y=256)
+chunk_size = dict(band=1, x=512, y=512)
 
 BAND_MAPPING = {
     "HLSL30_2.0": {
@@ -193,29 +193,29 @@ DEFAULT_BANDS = [
 DEFAULT_RESOLUTION = 30
 
 
-@cached(cache=FIFOCache(maxsize=1), key=lambda creds: creds["sessionToken"])
-def get_aws_session_DAAC(creds):
-    """Create a Rasterio AWS Session with Credentials"""
-    #creds = maap.aws.earthdata_s3_credentials('https://data.lpdaac.earthdatacloud.nasa.gov/s3credentials')
-    boto3_session = boto3.Session(
-        aws_access_key_id=creds['accessKeyId'], 
-        aws_secret_access_key=creds['secretAccessKey'],
-        aws_session_token=creds['sessionToken'],
-        region_name='us-west-2'
-    )
-    return AWSSession(boto3_session)
+# @cached(cache=FIFOCache(maxsize=1), key=lambda creds: creds["sessionToken"])
+# def get_aws_session_DAAC(creds):
+#     """Create a Rasterio AWS Session with Credentials"""
+#     #creds = maap.aws.earthdata_s3_credentials('https://data.lpdaac.earthdatacloud.nasa.gov/s3credentials')
+#     boto3_session = boto3.Session(
+#         aws_access_key_id=creds['accessKeyId'], 
+#         aws_secret_access_key=creds['secretAccessKey'],
+#         aws_session_token=creds['sessionToken'],
+#         region_name='us-west-2'
+#     )
+#     return AWSSession(boto3_session)
 
 
-def get_creds_DAAC():
-    maap = MAAP(maap_host="api.maap-project.org")
-    return maap.aws.earthdata_s3_credentials(
-        'https://data.lpdaac.earthdatacloud.nasa.gov/s3credentials'
-    )
+# def get_creds_DAAC():
+#     maap = MAAP(maap_host="api.maap-project.org")
+#     return maap.aws.earthdata_s3_credentials(
+#         'https://data.lpdaac.earthdatacloud.nasa.gov/s3credentials'
+#     )
 
 
-def renew_session(comp_type):
-    aws_session = get_aws_session_DAAC(get_creds_DAAC())
-    return aws_session   
+# def renew_session(comp_type):
+#     aws_session = get_aws_session_DAAC(get_creds_DAAC())
+#     return aws_session   
 
 
 def get_stac_items(
@@ -416,9 +416,9 @@ def load_band_retry(tif_path: Path, max_retries: int = 3, delay: int = 5, fill_v
             if access_type == "direct":
                 rasterio_env["session"] = _credential_manager.get_session()
             with rio.Env(**rasterio_env):
-                # return rxr.open_rasterio(tif_path, lock=False, chunks=chunk_size, driver='GTiff').squeeze()
-                with Reader(tif_path) as src:
-                    return da.from_array(src.read(1), chunks=chunk_size)
+                return rxr.open_rasterio(tif_path, lock=False, chunks=chunk_size, driver='GTiff').squeeze()
+                # with Reader(tif_path) as src:
+                #     return da.from_array(src.read(1), chunks=chunk_size)
         except Exception as e:
             logger.warning(f"Attempt {attempt + 1} failed for {tif_path}: {e}")
             if attempt < max_retries - 1:
