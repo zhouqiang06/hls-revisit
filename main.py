@@ -663,7 +663,7 @@ def download_url(url: str, save_path: str, access_type="external"):
         return False
 
 
-def download_tile(tile: str, start_date: str, end_date: str, save_dir: str, search_source="STAC", access_type="direct"):
+def run(tile: str, start_date: str, end_date: str, save_dir: str, search_source="STAC", access_type="direct"): #download_tile
     save_dir = os.path.join(save_dir, tile)
     # save_dir = os.path.join(save_dir)
     if not os.path.exists(save_dir):
