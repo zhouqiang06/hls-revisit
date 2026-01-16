@@ -729,9 +729,9 @@ def merge_tiles(file_list, out_name, preprocessing=True, dtype=np.float32, nodat
         dest.write(mosaic)
 
 
-def download_url(url: str, save_path: str, access_type="external"):
+def download_url(url: str, save_dir: str, access_type="external"):
     try:
-        return preproccess_online(filename=url, factor=1/33, out_dir=save_path)
+        return preproccess_online(filename=url, factor=1/33, out_dir=save_dir)
         # arr = fetch_with_retry(url, fill_value=QA_FILL, access_type=access_type)
         # saveGeoTiff(filename=save_path, data=arr, template_file=url, access_type=access_type)
         # return True
@@ -756,7 +756,7 @@ def run(tile: str, start_date: str, end_date: str, save_dir: str, search_source=
         img_list = list(set(img_list)) # Remove duplicates from the list
         print(len(img_list), ' images to be downloaded.')
         for img_file in img_list:
-            file_path = download_url(img_file, os.path.join(save_dir, os.path.basename(img_file)), access_type=access_type)
+            file_path = download_url(img_file, save_dir, access_type=access_type)
             print('Downloaded ', file_path)
 
     else:
