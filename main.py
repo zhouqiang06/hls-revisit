@@ -666,7 +666,7 @@ def run(tile: str, start_date: str, end_date: str, save_dir: str, search_source=
         os.makedirs(save_dir)
     # access_type="direct" # direct, or external
     img_list = find_all_granules(tile=tile, bandnum=8, start_date=start_date, end_date=end_date, search_source=search_source, access_type=access_type)['granule_path'].tolist()
-    downloaded_list = glob(os.path.join("my-private-bucket/dps_output/HLS_revisit/main/download-revisit", "**", '*Fmask.tif'), recursive=True)
+    downloaded_list = glob(os.path.join("my-private-bucket/dps_output/HLS_revisit/main/download-revisit", "**", f"HLS.*.T{tile}.*.v2.0.Fmask.tif"), recursive=True)
     img_list = list(set(img_list) - set(downloaded_list))
     # print(img_list[:3])
     if len(img_list) > 0:
