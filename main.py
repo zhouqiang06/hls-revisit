@@ -651,7 +651,7 @@ def merge_tiles(file_list, out_name, preprocessing=True, dtype=np.float32, nodat
 
 
 def run(tile: str, start_date: str, end_date: str, save_dir: str, search_source="STAC", access_type="direct"):
-    save_dir = os.path.join(save_dir, tile[:2], tile[2], tile[3], tile[4])
+    save_dir = os.path.join(save_dir, tile)
     # save_dir = os.path.join(save_dir)
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
