@@ -294,10 +294,10 @@ def fetch_single_asset(
 
     except Exception as e:
         logger.warning(f"Failed to read {asset_href}: {e}")
-        return np.zeros((3660, 3660)) + fill_value
+        return None # np.full((3660, 3660), fill_value)
 
 
-def fetch_with_retry(asset_href: Path, max_retries: int = 3, delay: int = 5, fill_value=SR_FILL, access_type="external"):
+def fetch_with_retry(asset_href: Path, max_retries: int = 3, delay: int = 1, fill_value=SR_FILL, access_type="external"):
     for attempt in range(max_retries):
         try:
             return fetch_single_asset(
@@ -317,7 +317,7 @@ def fetch_with_retry(asset_href: Path, max_retries: int = 3, delay: int = 5, fil
                 logger.error(
                     f"All {max_retries} attempts failed for {asset_href}. Last error: {e}"
                 )
-                return np.full((3660, 3660), fill_value)
+                return None # np.full((3660, 3660), fill_value)
 
 
 common_bands = ["Blue","Green","Red","NIR_Narrow","SWIR1", "SWIR2", "Fmask"]
@@ -654,7 +654,7 @@ def run(tile: str, start_date: str, end_date: str, save_dir: str, search_source=
         return
     # access_type="direct" # direct, or external
     img_list = find_all_granules(tile=tile, bandnum=8, start_date=start_date, end_date=end_date, search_source=search_source, access_type=access_type)['granule_path'].tolist()
-    print(img_list[:3])
+    # print(img_list[:3])
     if len(img_list) > 0:
         img_list = list(set(img_list)) # Remove duplicates from the list
         print(len(img_list), ' images found')
@@ -672,15 +672,22 @@ def run(tile: str, start_date: str, end_date: str, save_dir: str, search_source=
                 pre_date = datetime.strptime(os.path.basename(img_file).split('.')[3][:7], '%Y%j')
             else:
                 cur_date = datetime.strptime(os.path.basename(img_file).split('.')[3][:7], '%Y%j')
-                # arr = load_band_retry(img_file, fill_value=QA_FILL, access_type=access_type).to_numpy()
-                arr = fetch_with_retry(img_file, fill_value=QA_FILL, access_type=access_type)#.to_numpy()
+                try:
+                    # arr = load_band_retry(img_file, fill_value=QA_FILL, access_type=access_type).to_numpy()
+                    arr = fetch_with_retry(img_file, fill_value=QA_FILL, access_type=access_type)#.to_numpy()
+                except Exception as e:
+                    print(f"An error occurred loading image {img_file}: {e}")
+                    arr = None
                 if arr is not None:
-                    print('Calculating time difference for image ', (cur_date - pre_date).days, pre_date.strftime('%Y-%m-%d'), ' to ', cur_date.strftime('%Y-%m-%d'))
-                    time_diff_arr[i_img-1, :, :] = (cur_date - pre_date).days
-                    time_diff_mask[i_img-1, :, :] = (arr == QA_FILL)
-                    clear_mask = (arr == QA_FILL) | mask_hls(arr, mask_list=['cloud', 'adj_cloud', 'cloud shadow'])
-                    time_diff_mask_clear[i_img-1, :, :] = clear_mask
-                    clear_mask_monthly[img_month-1, :, :] += (~clear_mask).astype(np.uint8)
+                    try:
+                        print('Calculating time difference for image ', (cur_date - pre_date).days, pre_date.strftime('%Y-%m-%d'), ' to ', cur_date.strftime('%Y-%m-%d'))
+                        time_diff_arr[i_img-1, :, :] = (cur_date - pre_date).days
+                        time_diff_mask[i_img-1, :, :] = (arr == QA_FILL)
+                        clear_mask = (arr == QA_FILL) | mask_hls(arr, mask_list=['cloud', 'adj_cloud', 'cloud shadow'])
+                        time_diff_mask_clear[i_img-1, :, :] = clear_mask
+                        clear_mask_monthly[img_month-1, :, :] += (~clear_mask).astype(np.uint8)
+                    except Exception as e:
+                        print(f"An error occurred processing image {img_file}: {e}")
                 pre_date = cur_date
             ## save revisit interval file
         # time_diff_arr_ma = da.ma.masked_array(data=time_diff_arr, mask=time_diff_mask, fill_value=np.nan)
