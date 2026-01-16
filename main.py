@@ -551,8 +551,11 @@ def find_all_granules(tile: str, bandnum: int, start_date: str, end_date: str, s
     return pd.DataFrame({"Date": date_list, "Sat": sat_list, "granule_path": url_list})
 
 
-def preproccess(filename, factor=1):
-    outdir = os.path.join(os.path.dirname(filename), 'temp')
+def preproccess(filename, factor=1, out_dir=None):
+    if out_dir is not None:
+        outdir = os.path.join(out_dir, 'temp')
+    else:
+        outdir = os.path.join(os.path.dirname(filename), 'temp')
     outname_prj = os.path.join(outdir, os.path.basename(filename).replace('.tif', '_prj.tif'))
     outname_lres = outname_prj.replace('.tif', '_lowres.tif')
 
@@ -617,7 +620,7 @@ def preproccess(filename, factor=1):
                     with rio.open(outname_lres, "w", **out_meta) as dest:
                         dest.write(data)
                     return outname_lres
-            return
+            return None
     # if already processed
     if factor == 1:
         return outname_prj
@@ -651,9 +654,10 @@ def merge_tiles(file_list, out_name, preprocessing=True, dtype=np.float32, nodat
 
 def download_url(url: str, save_path: str, access_type="external"):
     try:
-        arr = fetch_with_retry(url, fill_value=QA_FILL, access_type=access_type)
-        saveGeoTiff(filename=save_path, data=arr, template_file=url, access_type=access_type)
-        return True
+        return preproccess(filename=url, factor=1/33, out_dir=save_path)
+        # arr = fetch_with_retry(url, fill_value=QA_FILL, access_type=access_type)
+        # saveGeoTiff(filename=save_path, data=arr, template_file=url, access_type=access_type)
+        # return True
     except Exception as e:
         print(f"An error occurred downloading {url}: {e}")
         return False
@@ -667,7 +671,7 @@ def download_tile(tile: str, start_date: str, end_date: str, save_dir: str, sear
     # access_type="direct" # direct, or external
     img_list = find_all_granules(tile=tile, bandnum=8, start_date=start_date, end_date=end_date, search_source=search_source, access_type=access_type)['granule_path'].tolist()
     # downloaded_list = glob(os.path.join("my-private-bucket/dps_output/HLS_revisit/main/download-revisit", "**", f"HLS.*.T{tile}.*.v2.0.Fmask.tif"), recursive=True)
-    downloaded_list = glob(os.path.join("s3://s3-us-west-2.amazonaws.com:80/maap-ops-workspace/zhouqiang06/dps_output/HLS_revisit/main/download-revisit", "**", f"HLS.*.T{tile}.*.v2.0.Fmask.tif"), recursive=True)
+    downloaded_list = glob(os.path.join("s3://s3-us-west-2.amazonaws.com:80/maap-ops-workspace/zhouqiang06/dps_output/HLS_revisit/main/download-revisit", "**", f"HLS.*.T{tile}.*.v2.0.Fmask_lowres.tif"), recursive=True)
     print(len(downloaded_list), ' images already downloaded.')
     img_list = list(set(img_list) - set(downloaded_list))
     # print(img_list[:3])
@@ -675,7 +679,9 @@ def download_tile(tile: str, start_date: str, end_date: str, save_dir: str, sear
         img_list = list(set(img_list)) # Remove duplicates from the list
         print(len(img_list), ' images to be downloaded.')
         for img_file in img_list:
-            download_url(img_file, os.path.join(save_dir, os.path.basename(img_file)), access_type=access_type)
+            file_path = download_url(img_file, os.path.join(save_dir, os.path.basename(img_file)), access_type=access_type)
+            print('Downloaded ', file_path)
+
     else:
         print("No new images to download.")
         date_list = np.asarray([datetime.strptime(os.path.basename(img_file).split('.')[3][:7], '%Y%j') for img_file in downloaded_list])
@@ -683,85 +689,85 @@ def download_tile(tile: str, start_date: str, end_date: str, save_dir: str, sear
         return downloaded_list
 
 
-def run(tile: str, start_date: str, end_date: str, save_dir: str, search_source="STAC", access_type="direct"):
-    save_dir = os.path.join(save_dir, tile)
-    # save_dir = os.path.join(save_dir)
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
-    out_revisit_all = os.path.join(save_dir, f'HLS.total.{tile}.revisit.median.date.tif')
-    out_revisit_clear = os.path.join(save_dir, f'HLS.total.{tile}.revisit.median.date.clear.tif')
-    out_num_all = os.path.join(save_dir, f'HLS.total.{tile}.num.obs.tif')
-    out_num_clear = os.path.join(save_dir, f'HLS.total.{tile}.num.obs.clear.tif')
-    # check if obs_count are processed
-    if os.path.exists(out_revisit_all) and os.path.exists(out_revisit_clear) and os.path.exists(out_num_all) and os.path.exists(out_num_clear):
-        return
-    # access_type="direct" # direct, or external
-    # img_list = find_all_granules(tile=tile, bandnum=8, start_date=start_date, end_date=end_date, search_source=search_source, access_type=access_type)['granule_path'].tolist()
-    img_list = download_tile(tile=tile, start_date=start_date, end_date=end_date, save_dir=save_dir, search_source=search_source, access_type=access_type)
-    # print(img_list[:3])
-    if len(img_list) > 0:
-        img_list = list(set(img_list)) # Remove duplicates from the list
-        print(len(img_list), ' images found')
-        date_list = np.asarray([datetime.strptime(os.path.basename(img_file).split('.')[3][:7], '%Y%j') for img_file in img_list])
-        img_list = np.asarray(img_list)[np.argsort(date_list)]
-        tile = os.path.basename(img_list[0]).split('.')[2]
-        # Count number of clear observation
-        time_diff_arr = da.zeros((len(img_list)-1, 3660, 3660), chunks=chunk_size, dtype=np.float32)
-        time_diff_mask = da.full((len(img_list)-1, 3660, 3660), False, chunks=chunk_size, dtype=bool)
-        time_diff_mask_clear = da.full((len(img_list)-1, 3660, 3660), False, chunks=chunk_size, dtype=bool)
-        clear_mask_monthly = da.zeros((12, 3660, 3660), chunks=chunk_size, dtype=np.uint8)
-        for i_img, img_file in enumerate(img_list):
-            img_month = datetime.strptime(os.path.basename(img_file).split('.')[3][:7], '%Y%j').month
-            if i_img == 0:
-                pre_date = datetime.strptime(os.path.basename(img_file).split('.')[3][:7], '%Y%j')
-            else:
-                cur_date = datetime.strptime(os.path.basename(img_file).split('.')[3][:7], '%Y%j')
-                try:
-                    # arr = load_band_retry(img_file, fill_value=QA_FILL, access_type=access_type).to_numpy()
-                    arr = fetch_with_retry(img_file, fill_value=QA_FILL, access_type=access_type)#.to_numpy()
-                    saveGeoTiff(filename=os.path.join(save_dir, os.path.basename(img_file)), data=arr, template_file=img_file, access_type=access_type)
-                except Exception as e:
-                    print(f"An error occurred loading image {img_file}: {e}")
-                    arr = None
-                if arr is not None:
-                    try:
-                        print('Calculating time difference for image ', (cur_date - pre_date).days, pre_date.strftime('%Y-%m-%d'), ' to ', cur_date.strftime('%Y-%m-%d'))
-                        time_diff_arr[i_img-1, :, :] = (cur_date - pre_date).days
-                        time_diff_mask[i_img-1, :, :] = (arr == QA_FILL)
-                        clear_mask = (arr == QA_FILL) | mask_hls(arr, mask_list=['cloud', 'adj_cloud', 'cloud shadow'])
-                        time_diff_mask_clear[i_img-1, :, :] = clear_mask
-                        clear_mask_monthly[img_month-1, :, :] += (~clear_mask).astype(np.uint8)
-                    except Exception as e:
-                        print(f"An error occurred processing image {img_file}: {e}")
-                pre_date = cur_date
-            ## save revisit interval file
-        # time_diff_arr_ma = da.ma.masked_array(data=time_diff_arr, mask=time_diff_mask, fill_value=np.nan)
-        time_diff_arr[time_diff_mask==True] = np.nan
-        print('time diff array stats (all obs):')
-        median_arr = da.nanmedian(time_diff_arr, axis=0)
-        median_arr[median_arr==np.nan] = SR_FILL
-        saveGeoTiff(filename=out_revisit_all, data=median_arr, template_file=img_list[0], access_type=access_type)
-        preproccess(out_revisit_all, factor=1/33)
+# def run(tile: str, start_date: str, end_date: str, save_dir: str, search_source="STAC", access_type="direct"):
+#     save_dir = os.path.join(save_dir, tile)
+#     # save_dir = os.path.join(save_dir)
+#     if not os.path.exists(save_dir):
+#         os.makedirs(save_dir)
+#     out_revisit_all = os.path.join(save_dir, f'HLS.total.{tile}.revisit.median.date.tif')
+#     out_revisit_clear = os.path.join(save_dir, f'HLS.total.{tile}.revisit.median.date.clear.tif')
+#     out_num_all = os.path.join(save_dir, f'HLS.total.{tile}.num.obs.tif')
+#     out_num_clear = os.path.join(save_dir, f'HLS.total.{tile}.num.obs.clear.tif')
+#     # check if obs_count are processed
+#     if os.path.exists(out_revisit_all) and os.path.exists(out_revisit_clear) and os.path.exists(out_num_all) and os.path.exists(out_num_clear):
+#         return
+#     # access_type="direct" # direct, or external
+#     # img_list = find_all_granules(tile=tile, bandnum=8, start_date=start_date, end_date=end_date, search_source=search_source, access_type=access_type)['granule_path'].tolist()
+#     img_list = download_tile(tile=tile, start_date=start_date, end_date=end_date, save_dir=save_dir, search_source=search_source, access_type=access_type)
+#     # print(img_list[:3])
+#     if len(img_list) > 0:
+#         img_list = list(set(img_list)) # Remove duplicates from the list
+#         print(len(img_list), ' images found')
+#         date_list = np.asarray([datetime.strptime(os.path.basename(img_file).split('.')[3][:7], '%Y%j') for img_file in img_list])
+#         img_list = np.asarray(img_list)[np.argsort(date_list)]
+#         tile = os.path.basename(img_list[0]).split('.')[2]
+#         # Count number of clear observation
+#         time_diff_arr = da.zeros((len(img_list)-1, 3660, 3660), chunks=chunk_size, dtype=np.float32)
+#         time_diff_mask = da.full((len(img_list)-1, 3660, 3660), False, chunks=chunk_size, dtype=bool)
+#         time_diff_mask_clear = da.full((len(img_list)-1, 3660, 3660), False, chunks=chunk_size, dtype=bool)
+#         clear_mask_monthly = da.zeros((12, 3660, 3660), chunks=chunk_size, dtype=np.uint8)
+#         for i_img, img_file in enumerate(img_list):
+#             img_month = datetime.strptime(os.path.basename(img_file).split('.')[3][:7], '%Y%j').month
+#             if i_img == 0:
+#                 pre_date = datetime.strptime(os.path.basename(img_file).split('.')[3][:7], '%Y%j')
+#             else:
+#                 cur_date = datetime.strptime(os.path.basename(img_file).split('.')[3][:7], '%Y%j')
+#                 try:
+#                     # arr = load_band_retry(img_file, fill_value=QA_FILL, access_type=access_type).to_numpy()
+#                     arr = fetch_with_retry(img_file, fill_value=QA_FILL, access_type=access_type)#.to_numpy()
+#                     saveGeoTiff(filename=os.path.join(save_dir, os.path.basename(img_file)), data=arr, template_file=img_file, access_type=access_type)
+#                 except Exception as e:
+#                     print(f"An error occurred loading image {img_file}: {e}")
+#                     arr = None
+#                 if arr is not None:
+#                     try:
+#                         print('Calculating time difference for image ', (cur_date - pre_date).days, pre_date.strftime('%Y-%m-%d'), ' to ', cur_date.strftime('%Y-%m-%d'))
+#                         time_diff_arr[i_img-1, :, :] = (cur_date - pre_date).days
+#                         time_diff_mask[i_img-1, :, :] = (arr == QA_FILL)
+#                         clear_mask = (arr == QA_FILL) | mask_hls(arr, mask_list=['cloud', 'adj_cloud', 'cloud shadow'])
+#                         time_diff_mask_clear[i_img-1, :, :] = clear_mask
+#                         clear_mask_monthly[img_month-1, :, :] += (~clear_mask).astype(np.uint8)
+#                     except Exception as e:
+#                         print(f"An error occurred processing image {img_file}: {e}")
+#                 pre_date = cur_date
+#             ## save revisit interval file
+#         # time_diff_arr_ma = da.ma.masked_array(data=time_diff_arr, mask=time_diff_mask, fill_value=np.nan)
+#         time_diff_arr[time_diff_mask==True] = np.nan
+#         print('time diff array stats (all obs):')
+#         median_arr = da.nanmedian(time_diff_arr, axis=0)
+#         median_arr[median_arr==np.nan] = SR_FILL
+#         saveGeoTiff(filename=out_revisit_all, data=median_arr, template_file=img_list[0], access_type=access_type)
+#         preproccess(out_revisit_all, factor=1/33)
 
-        # time_diff_arr_ma = da.ma.masked_array(data=time_diff_arr, mask=time_diff_mask_clear, fill_value=np.nan)
-        time_diff_arr[time_diff_mask_clear==True] = np.nan
-        median_arr = np.nanmedian(time_diff_arr, axis=0)
-        median_arr[median_arr==np.nan] = SR_FILL
-        saveGeoTiff(filename=out_revisit_clear, data=median_arr, template_file=img_list[0], access_type=access_type)
-        preproccess(out_revisit_clear, factor=1/33)
+#         # time_diff_arr_ma = da.ma.masked_array(data=time_diff_arr, mask=time_diff_mask_clear, fill_value=np.nan)
+#         time_diff_arr[time_diff_mask_clear==True] = np.nan
+#         median_arr = np.nanmedian(time_diff_arr, axis=0)
+#         median_arr[median_arr==np.nan] = SR_FILL
+#         saveGeoTiff(filename=out_revisit_clear, data=median_arr, template_file=img_list[0], access_type=access_type)
+#         preproccess(out_revisit_clear, factor=1/33)
 
-        del median_arr, time_diff_arr#, time_diff_arr_ma
-        ## save obs count file
-        saveGeoTiff(filename=out_num_all, data=da.sum(~time_diff_mask, axis=0), template_file=img_list[0], access_type=access_type)
-        saveGeoTiff(filename=out_num_clear, data=da.sum(~time_diff_mask_clear, axis=0), template_file=img_list[0], access_type=access_type)
-        preproccess(out_num_all, factor=1/33)
-        preproccess(out_num_clear, factor=1/33)
-        ## save monthly clear count file
-        for i in range(12):
-            out_name = os.path.join(save_dir, f'HLS.{tile}.M{i+1}.num.obs.clear.tif')
-            print('Monthly clear obs count for month ', i+1)
-            saveGeoTiff(filename=out_name, data=clear_mask_monthly[i, :, :], template_file=img_list[0], access_type=access_type)
-            preproccess(out_name, factor=1/33)
+#         del median_arr, time_diff_arr#, time_diff_arr_ma
+#         ## save obs count file
+#         saveGeoTiff(filename=out_num_all, data=da.sum(~time_diff_mask, axis=0), template_file=img_list[0], access_type=access_type)
+#         saveGeoTiff(filename=out_num_clear, data=da.sum(~time_diff_mask_clear, axis=0), template_file=img_list[0], access_type=access_type)
+#         preproccess(out_num_all, factor=1/33)
+#         preproccess(out_num_clear, factor=1/33)
+#         ## save monthly clear count file
+#         for i in range(12):
+#             out_name = os.path.join(save_dir, f'HLS.{tile}.M{i+1}.num.obs.clear.tif')
+#             print('Monthly clear obs count for month ', i+1)
+#             saveGeoTiff(filename=out_name, data=clear_mask_monthly[i, :, :], template_file=img_list[0], access_type=access_type)
+#             preproccess(out_name, factor=1/33)
 
 
 
