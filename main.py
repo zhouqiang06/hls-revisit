@@ -147,7 +147,7 @@ QA_BIT = {'cirrus': 0,
 'aerosol_h': 7
 }
 
-chunk_size = dict(band=1, x=512, y=512)
+chunk_size = dict(band=1, x=256, y=256)
 
 BAND_MAPPING = {
     "HLSL30_2.0": {
@@ -693,9 +693,9 @@ def run(tile: str, start_date: str, end_date: str, save_dir: str, search_source=
                         print('Calculating time difference for image ', (cur_date - pre_date).days, pre_date.strftime('%Y-%m-%d'), ' to ', cur_date.strftime('%Y-%m-%d'))
                         time_diff_arr[i_img-1, :, :] = (cur_date - pre_date).days
                         time_diff_mask[i_img-1, :, :] = (arr == QA_FILL)
-                        # clear_mask = (arr == QA_FILL) | mask_hls(arr, mask_list=['cloud', 'adj_cloud', 'cloud shadow'])
-                        # time_diff_mask_clear[i_img-1, :, :] = clear_mask
-                        # clear_mask_monthly[img_month-1, :, :] += (~clear_mask).astype(np.uint8)
+                        clear_mask = (arr == QA_FILL) | mask_hls(arr, mask_list=['cloud', 'adj_cloud', 'cloud shadow'])
+                        time_diff_mask_clear[i_img-1, :, :] = clear_mask
+                        clear_mask_monthly[img_month-1, :, :] += (~clear_mask).astype(np.uint8)
                     except Exception as e:
                         print(f"An error occurred processing image {img_file}: {e}")
                 pre_date = cur_date
