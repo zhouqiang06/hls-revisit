@@ -451,12 +451,22 @@ def get_HLS_data(tile:str, bandnum:int, start_date:str, end_date:str, access_typ
         );
         """
     )
-    response = client.search(
-        href="s3://maap-ops-workspace/shared/henrydevseed/hls-stac-geoparquet-v1/year=*/month=*/*.parquet",
-        datetime=f"{start_date}T00:00:00Z/{end_date}T23:59:59Z",
-        bbox=find_tile_bounds(tile),
-    )
-    results = GetBandLists_HLS_STAC(response, tile, bandnum)
+    results = []
+    for collection in HLS_COLLECTIONS:
+        response = client.search(
+            href=HLS_STAC_GEOPARQUET_HREF.format(collection=collection),
+            datetime=f"{start_date}T00:00:00Z/{end_date}T23:59:59Z",
+            bbox=find_tile_bounds(tile),
+            )
+        results.extend(
+            GetBandLists_HLS_STAC(response, tile, bandnum)
+            )
+    # response = client.search(
+    #     href="s3://maap-ops-workspace/shared/henrydevseed/hls-stac-geoparquet-v1/year=*/month=*/*.parquet",
+    #     datetime=f"{start_date}T00:00:00Z/{end_date}T23:59:59Z",
+    #     bbox=find_tile_bounds(tile),
+    # )
+    # results = GetBandLists_HLS_STAC(response, tile, bandnum)
     if access_type=="direct":
         results = [r.replace(URL_PREFIX, "s3://") for r in results]
     return results
