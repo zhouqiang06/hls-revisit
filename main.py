@@ -551,6 +551,83 @@ def find_all_granules(tile: str, bandnum: int, start_date: str, end_date: str, s
     return pd.DataFrame({"Date": date_list, "Sat": sat_list, "granule_path": url_list})
 
 
+def preproccess_online(filename, factor=1, out_dir=None):
+    # outdir = os.path.join(out_dir, 'temp')
+    outname_prj = os.path.join(out_dir, os.path.basename(filename).replace('.tif', '_prj.tif'))
+    outname_lres = outname_prj.replace('.tif', '_lowres.tif')
+
+    if not os.path.exists(outname_prj):
+        #open source raster
+        rasterio_env = {}
+        rasterio_env["session"] = _credential_manager.get_session()
+        with rio.Env(**rasterio_env):
+            # return rxr.open_rasterio(asset_href, lock=False, chunks=chunk_size, driver='GTiff').squeeze()
+            with rio.open(filename) as srcRst:
+                dstCrs = {'init': 'EPSG:4326'}
+                #calculate transform array and shape of reprojected raster
+                transform, width, height = calculate_default_transform(
+                        srcRst.crs, dstCrs, srcRst.width, srcRst.height, *srcRst.bounds)
+                #working of the meta for the destination raster
+                kwargs = srcRst.meta.copy()
+                kwargs.update({
+                        'crs': dstCrs,
+                        'transform': transform,
+                        'width': width,
+                        'height': height
+                    })
+                #open destination raster
+                if not os.path.exists(out_dir):
+                    os.makedirs(out_dir)
+                with rio.open(outname_prj, 'w', **kwargs) as dstRst:
+                    #reproject and save raster band data
+                    for i in range(1, srcRst.count + 1):
+                        reproject(
+                            source=rio.band(srcRst, i),
+                            destination=rio.band(dstRst, i),
+                            #src_transform=srcRst.transform,
+                            src_crs=srcRst.crs,
+                            #dst_transform=transform,
+                            dst_crs=dstCrs,
+                            resampling=Resampling.nearest)
+        if factor != 1:
+            # print('Resample.')
+            with rio.open(outname_prj) as dataset:
+                # resample data to target shape
+                data = dataset.read(
+                    out_shape=(
+                        dataset.count,
+                        int(dataset.height * factor),
+                        int(dataset.width * factor)
+                    ),
+                    resampling=Resampling.nearest
+                )
+                # print('data shape: ', data.shape)
+                if data.shape[-1] > 0 and data.shape[-2] > 0:
+                    # scale image transform
+                    transform = dataset.transform * dataset.transform.scale(
+                        # (1 / factor),
+                        # (1 / factor)
+                        (dataset.width / data.shape[-1]),
+                        (dataset.height / data.shape[-2])
+                    )
+                    out_meta = dataset.meta.copy()
+                    out_meta.update({"driver": "GTiff",
+                                    "height": data.shape[1],
+                                    "width": data.shape[2],
+                                    "transform": transform,
+                                    })
+                    with rio.open(outname_lres, "w", **out_meta) as dest:
+                        dest.write(data)
+                    return outname_lres
+            return None
+    # if already processed
+    if factor == 1:
+        return outname_prj
+    else:
+        os.remove(outname_prj)
+        return outname_lres
+
+
 def preproccess(filename, factor=1, out_dir=None):
     if out_dir is not None:
         outdir = os.path.join(out_dir, 'temp')
@@ -654,7 +731,7 @@ def merge_tiles(file_list, out_name, preprocessing=True, dtype=np.float32, nodat
 
 def download_url(url: str, save_path: str, access_type="external"):
     try:
-        return preproccess(filename=url, factor=1/33, out_dir=save_path)
+        return preproccess_online(filename=url, factor=1/33, out_dir=save_path)
         # arr = fetch_with_retry(url, fill_value=QA_FILL, access_type=access_type)
         # saveGeoTiff(filename=save_path, data=arr, template_file=url, access_type=access_type)
         # return True
@@ -664,7 +741,7 @@ def download_url(url: str, save_path: str, access_type="external"):
 
 
 def run(tile: str, start_date: str, end_date: str, save_dir: str, search_source="STAC", access_type="direct"): #download_tile
-    save_dir = os.path.join(save_dir, tile)
+    save_dir = os.path.join(save_dir, tile) 
     # save_dir = os.path.join(save_dir)
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
