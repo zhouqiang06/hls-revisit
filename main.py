@@ -668,6 +668,7 @@ def download_tile(tile: str, start_date: str, end_date: str, save_dir: str, sear
     img_list = find_all_granules(tile=tile, bandnum=8, start_date=start_date, end_date=end_date, search_source=search_source, access_type=access_type)['granule_path'].tolist()
     # downloaded_list = glob(os.path.join("my-private-bucket/dps_output/HLS_revisit/main/download-revisit", "**", f"HLS.*.T{tile}.*.v2.0.Fmask.tif"), recursive=True)
     downloaded_list = glob(os.path.join("s3://s3-us-west-2.amazonaws.com:80/maap-ops-workspace/zhouqiang06/dps_output/HLS_revisit/main/download-revisit", "**", f"HLS.*.T{tile}.*.v2.0.Fmask.tif"), recursive=True)
+    print(len(downloaded_list), ' images already downloaded.')
     img_list = list(set(img_list) - set(downloaded_list))
     # print(img_list[:3])
     if len(img_list) > 0:
