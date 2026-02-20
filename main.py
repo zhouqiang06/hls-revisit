@@ -10,16 +10,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Tuple
 
-import pandas as pd
 from maap.maap import MAAP
 from pystac import Asset, Catalog, CatalogType, Item
 from rasterio.session import AWSSession
 from rustac import DuckdbClient
 # import boto3
 # from cachetools import FIFOCache, cached
-
-import os
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -38,8 +34,8 @@ import dask.array as da
 
 from rasterio.warp import calculate_default_transform, reproject, Resampling
 from rasterio.merge import merge
-from rasterio.warp import calculate_default_transform, reproject, Resampling
 from rasterio.enums import Resampling
+
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(name)s - %(message)s"
@@ -551,77 +547,71 @@ def find_all_granules(tile: str, bandnum: int, start_date: str, end_date: str, s
     return pd.DataFrame({"Date": date_list, "Sat": sat_list, "granule_path": url_list})
 
 
-def preproccess_online(filename, factor=1, out_dir=None):
-    #open source raster
-    rasterio_env = {}
-    rasterio_env["session"] = _credential_manager.get_session()
+def preprocess_online(filename, factor=1.0, out_dir=None):
+    """
+    Reprojects to EPSG:4326 and resamples by 'factor' in a single pass.
+    Integration of sensor metadata extraction and optimized warping.
+    """
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
+
+    rasterio_env = {"session": _credential_manager.get_session()}
+    dst_crs = 'EPSG:4326'
+
     with rio.Env(**rasterio_env):
-        # return rxr.open_rasterio(asset_href, lock=False, chunks=chunk_size, driver='GTiff').squeeze()
-        with rio.open(filename) as srcRst:
+        with rio.open(filename) as src:
+            # 1. Extract Sensor Information from Tags
             sat = os.path.basename(filename).split('.')[1]
+            sensor = sat # Fallback
             if sat == "L30":
-                sensor = srcRst.tags()['LANDSAT_PRODUCT_ID'].split('_')[0]
-            if sat == "S30":
-                sensor = srcRst.tags()['DATASTRIP_ID'].split('_')[0]
-            outname_prj = os.path.join(out_dir, os.path.basename(filename).replace(sat, sensor).replace('.tif', '_prj.tif'))
-            dstCrs = {'init': 'EPSG:4326'}
-            #calculate transform array and shape of reprojected raster
+                sensor = src.tags().get('LANDSAT_PRODUCT_ID', 'L30').split('_')[0]
+            elif sat == "S30":
+                sensor = src.tags().get('DATASTRIP_ID', 'S30').split('_')[0]
+
+            # 2. Determine Output Filename
+            suffix = f".prj.lowres.tif" if factor != 1 else ".prj.tif"
+            out_name = os.path.join(out_dir, os.path.basename(filename).replace(sat, sensor).replace('.tif', suffix))
+
+            # 3. Calculate Transform for Reprojection + Resampling
+            # We adjust the width/height by the factor immediately
+            dst_width = int(src.width * factor)
+            dst_height = int(src.height * factor)
+            
+            # Prevent zero-dimension errors
+            if dst_width <= 0 or dst_height <= 0:
+                print(f"Factor {factor} is too small for raster size.")
+                return None
+
             transform, width, height = calculate_default_transform(
-                    srcRst.crs, dstCrs, srcRst.width, srcRst.height, *srcRst.bounds)
-            #working of the meta for the destination raster
-            kwargs = srcRst.meta.copy()
-            kwargs.update({
-                    'crs': dstCrs,
-                    'transform': transform,
-                    'width': width,
-                    'height': height
-                })
-            #open destination raster
-            if not os.path.exists(out_dir):
-                os.makedirs(out_dir)
-            with rio.open(outname_prj, 'w', **kwargs) as dstRst:
-                #reproject and save raster band data
-                for i in range(1, srcRst.count + 1):
-                    reproject(
-                        source=rio.band(srcRst, i),
-                        destination=rio.band(dstRst, i),
-                        #src_transform=srcRst.transform,
-                        src_crs=srcRst.crs,
-                        #dst_transform=transform,
-                        dst_crs=dstCrs,
-                        resampling=Resampling.nearest)
-    if factor != 1:
-        outname_lres = outname_prj.replace('.tif', '_lowres.tif')
-        # print('Resample.')
-        with rio.open(outname_prj) as dataset:
-            # resample data to target shape
-            data = dataset.read(
-                out_shape=(
-                    dataset.count,
-                    int(dataset.height * factor),
-                    int(dataset.width * factor)
-                ),
-                resampling=Resampling.nearest
+                src.crs, dst_crs, src.width, src.height, *src.bounds,
+                dst_width=dst_width, dst_height=dst_height
             )
-            # print('data shape: ', data.shape)
-            if data.shape[-1] > 0 and data.shape[-2] > 0:
-                # scale image transform
-                transform = dataset.transform * dataset.transform.scale(
-                    # (1 / factor),
-                    # (1 / factor)
-                    (dataset.width / data.shape[-1]),
-                    (dataset.height / data.shape[-2])
-                )
-                out_meta = dataset.meta.copy()
-                out_meta.update({"driver": "GTiff",
-                                "height": data.shape[1],
-                                "width": data.shape[2],
-                                "transform": transform,
-                                })
-                with rio.open(outname_lres, "w", **out_meta) as dest:
-                    dest.write(data)
-                return outname_lres
-        return None
+
+            # 4. Prepare Metadata
+            kwargs = src.meta.copy()
+            kwargs.update({
+                'crs': dst_crs,
+                'transform': transform,
+                'width': width,
+                'height': height,
+                'driver': 'GTiff'
+            })
+
+            # 5. Execute Single-Pass Warp (Reproject + Resample)
+            with rio.open(out_name, 'w', **kwargs) as dst:
+                for i in range(1, src.count + 1):
+                    reproject(
+                        source=rio.band(src, i),
+                        destination=rio.band(dst, i),
+                        src_crs=src.crs,
+                        dst_crs=dst_crs,
+                        dst_transform=transform,
+                        # Bilinear is better for NDVI/Reflectance than Nearest
+                        resampling=Resampling.bilinear if factor < 1 else Resampling.nearest
+                    )
+            
+            return out_name
+        
 
 
 def merge_tiles(file_list, out_name, preprocessing=True, dtype=np.float32, nodata=0): # first check images with overlap
@@ -651,7 +641,7 @@ def merge_tiles(file_list, out_name, preprocessing=True, dtype=np.float32, nodat
 def download_url(url: str, save_dir: str, access_type="external"):
     for i in range(3):
         try:
-            return preproccess_online(filename=url, factor=1/33, out_dir=save_dir)
+            return preprocess_online(filename=url, factor=1/33, out_dir=save_dir)
         except Exception as e:
             print(f"Attempt {i + 1} failed downloading {url}: {e}")
             time.sleep(2 ** i)  # Exponential backoff   
@@ -667,7 +657,7 @@ def download_tile(tile: str, start_date: str, end_date: str, save_dir: str, sear
     # access_type="direct" # direct, or external
     img_list = find_all_granules(tile=tile, bandnum=8, start_date=start_date, end_date=end_date, search_source=search_source, access_type=access_type)['granule_path'].tolist()
     # downloaded_list = glob(os.path.join("my-private-bucket/dps_output/HLS_revisit/main/download-revisit", "**", f"HLS.*.T{tile}.*.v2.0.Fmask.tif"), recursive=True)
-    downloaded_list = glob(os.path.join("s3://s3-us-west-2.amazonaws.com:80/maap-ops-workspace/zhouqiang06/dps_output/HLS_revisit/main/download-revisit", "**", f"HLS.*.T{tile}.*_lowres.tif"), recursive=True)
+    downloaded_list = glob(os.path.join("s3://s3-us-west-2.amazonaws.com:80/maap-ops-workspace/zhouqiang06/dps_output/HLS_revisit/main/download-revisit", "**", f"HLS.*.T{tile}.*.lowres.tif"), recursive=True)
     print(len(downloaded_list), ' images already downloaded.')
     img_list = list(set(img_list) - set(downloaded_list))
     # print(img_list[:3])
@@ -679,7 +669,7 @@ def download_tile(tile: str, start_date: str, end_date: str, save_dir: str, sear
             print('Downloaded ', file_path)
             downloaded_list.append(file_path)
         # remove prj files
-        prj_downloaded_list = glob(os.path.join(save_dir, "**", f"HLS.*.T{tile}.*_prj.tif"), recursive=True)
+        prj_downloaded_list = glob(os.path.join(save_dir, "**", f"HLS.*.T{tile}.*.prj.tif"), recursive=True)
         for f in prj_downloaded_list:
             os.remove(f)
 
