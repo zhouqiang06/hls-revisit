@@ -607,7 +607,7 @@ def preprocess_online(filename, factor=1.0, out_dir=None):
                         dst_crs=dst_crs,
                         dst_transform=transform,
                         # Bilinear is better for NDVI/Reflectance than Nearest
-                        resampling=Resampling.bilinear if factor < 1 else Resampling.nearest
+                        resampling=Resampling.nearest
                     )
             
             return out_name
