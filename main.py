@@ -188,6 +188,11 @@ DEFAULT_BANDS = [
 ]
 DEFAULT_RESOLUTION = 30
 
+DUCKDB_EXTENSION_DIRECTORY = Path(os.environ["HOME"]) / "duckdb-extensions"
+
+if not DUCKDB_EXTENSION_DIRECTORY.exists():
+    raise FileNotFoundError(f"{DUCKDB_EXTENSION_DIRECTORY} does not exist")
+    
 
 # @cached(cache=FIFOCache(maxsize=1), key=lambda creds: creds["sessionToken"])
 # def get_aws_session_DAAC(creds):
@@ -218,7 +223,11 @@ def get_stac_items(
     mgrs_tile: str, start_datetime: datetime, end_datetime: datetime
 ) -> list[Item]:
     logger.info("querying HLS archive")
-    client = DuckdbClient(use_hive_partitioning=True)
+    # client = DuckdbClient(use_hive_partitioning=True)
+    client = DuckdbClient(
+        use_hive_partitioning=True,
+        extension_directory=DUCKDB_EXTENSION_DIRECTORY,
+    )
     client.execute(
         """
         CREATE OR REPLACE SECRET secret (
