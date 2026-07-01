@@ -654,7 +654,7 @@ def download_url(url: str, save_dir: str, access_type="external"):
         except Exception as e:
             print(f"Attempt {i + 1} failed downloading {url}: {e}")
             time.sleep(2 ** i)  # Exponential backoff   
-    print(f"An error occurred downloading {url}: {e}")
+            # print(f"An error occurred downloading {url}: {e}")
     return False
 
 
