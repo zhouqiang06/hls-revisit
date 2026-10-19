@@ -689,88 +689,271 @@ def download_tile(tile: str, start_date: str, end_date: str, save_dir: str, sear
     return downloaded_list
 
 
-def run(tile: str, start_date: str, end_date: str, save_dir: str, search_source="STAC", access_type="direct"):
-    save_dir = os.path.join(save_dir, f"{tile}_{start_date[:4]}")
-    # save_dir = os.path.join(save_dir)
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
-    out_revisit_all = os.path.join(save_dir, f'HLS.{tile}.{start_date[:4]}.revisit.median.date.tif')
-    out_revisit_clear = os.path.join(save_dir, f'HLS.{tile}.{start_date[:4]}.revisit.median.date.clear.tif')
-    out_num_all = os.path.join(save_dir, f'HLS.{tile}.{start_date[:4]}.num.obs.tif')
-    out_num_clear = os.path.join(save_dir, f'HLS.{tile}.{start_date[:4]}.num.obs.clear.tif')
-    # check if obs_count are processed
-    if os.path.exists(out_revisit_all) and os.path.exists(out_revisit_clear) and os.path.exists(out_num_all) and os.path.exists(out_num_clear):
+
+def run(
+    tile: str,
+    start_date: str,
+    end_date: str,
+    save_dir: str,
+    search_source="STAC",
+    access_type="direct",
+):
+    import os
+    import gc
+    import numpy as np
+    import rasterio as rio
+    from datetime import datetime
+
+    year = start_date[:4]
+    save_dir = os.path.join(save_dir, f"{tile}_{year}")
+    os.makedirs(save_dir, exist_ok=True)
+
+    out_revisit_all = os.path.join(
+        save_dir, f"HLS.{tile}.{year}.revisit.median.date.tif"
+    )
+    out_revisit_clear = os.path.join(
+        save_dir, f"HLS.{tile}.{year}.revisit.median.date.clear.tif"
+    )
+    out_num_all = os.path.join(
+        save_dir, f"HLS.{tile}.{year}.num.obs.tif"
+    )
+    out_num_clear = os.path.join(
+        save_dir, f"HLS.{tile}.{year}.num.obs.clear.tif"
+    )
+
+    # Skip processing if all primary outputs exist.
+    if all(
+        os.path.exists(path)
+        for path in (
+            out_revisit_all,
+            out_revisit_clear,
+            out_num_all,
+            out_num_clear,
+        )
+    ):
         return
-    # access_type="direct" # direct, or external
-    # img_list = find_all_granules(tile=tile, bandnum=8, start_date=start_date, end_date=end_date, search_source=search_source, access_type=access_type)['granule_path'].tolist()
-    img_list = download_tile(tile=tile, start_date=start_date, end_date=end_date, save_dir=save_dir, search_source=search_source, access_type=access_type)
-    # print(img_list[:3])
-    if len(img_list) > 0:
-        img_list = list(set(img_list)) # Remove duplicates from the list
-        print(len(img_list), ' images found')
-        date_list = np.asarray([datetime.strptime(os.path.basename(img_file).split('.')[3][:7], '%Y%j') for img_file in img_list])
-        img_list = np.asarray(img_list)[np.argsort(date_list)]
-        tile = os.path.basename(img_list[0]).split('.')[2]
-        with rio.open(img_list[0]) as ds:
-            nrow, ncol = ds.read(1).shape
-        # Count number of clear observation
-        time_diff_arr = da.zeros((len(img_list)-1, nrow, ncol), chunks=chunk_size, dtype=np.float32)
-        time_diff_mask = da.full((len(img_list)-1, nrow, ncol), False, chunks=chunk_size, dtype=bool)
-        time_diff_mask_clear = da.full((len(img_list)-1, nrow, ncol), False, chunks=chunk_size, dtype=bool)
-        clear_mask_monthly = da.zeros((12, nrow, ncol), chunks=chunk_size, dtype=np.uint8)
-        for i_img, img_file in enumerate(img_list):
-            img_month = datetime.strptime(os.path.basename(img_file).split('.')[3][:7], '%Y%j').month
-            if i_img == 0:
-                pre_date = datetime.strptime(os.path.basename(img_file).split('.')[3][:7], '%Y%j')
-            else:
-                cur_date = datetime.strptime(os.path.basename(img_file).split('.')[3][:7], '%Y%j')
-                try:
-                    # arr = load_band_retry(img_file, fill_value=QA_FILL, access_type=access_type).to_numpy()
-                    # arr = fetch_with_retry(img_file, fill_value=QA_FILL, access_type=access_type)#.to_numpy()
-                    with rio.open(img_file) as ds:
-                        arr = ds.read(1)
-                except Exception as e:
-                    print(f"An error occurred loading image {img_file}: {e}")
-                    arr = None
-                if arr is not None:
-                    try:
-                        print('Calculating time difference for image ', (cur_date - pre_date).days, pre_date.strftime('%Y-%m-%d'), ' to ', cur_date.strftime('%Y-%m-%d'))
-                        time_diff_arr[i_img-1, :, :] = (cur_date - pre_date).days
-                        time_diff_mask[i_img-1, :, :] = (arr == QA_FILL)
-                        clear_mask = (arr == QA_FILL) | mask_hls(arr, mask_list=['cloud', 'adj_cloud', 'cloud shadow'])
-                        time_diff_mask_clear[i_img-1, :, :] = clear_mask
-                        clear_mask_monthly[img_month-1, :, :] += (~clear_mask).astype(np.uint8)
-                    except Exception as e:
-                        print(f"An error occurred processing image {img_file}: {e}")
-                pre_date = cur_date
-            ## save revisit interval file
-        # time_diff_arr_ma = da.ma.masked_array(data=time_diff_arr, mask=time_diff_mask, fill_value=np.nan)
-        time_diff_arr[time_diff_mask==True] = np.nan
-        print('time diff array stats (all obs):')
-        median_arr = da.nanmedian(time_diff_arr, axis=0)
-        median_arr[median_arr==np.nan] = SR_FILL
-        saveGeoTiff(filename=out_revisit_all, data=median_arr, template_file=img_list[0], access_type=access_type)
-        # preproccess(out_revisit_all, factor=1/33)
 
-        # time_diff_arr_ma = da.ma.masked_array(data=time_diff_arr, mask=time_diff_mask_clear, fill_value=np.nan)
-        time_diff_arr[time_diff_mask_clear==True] = np.nan
-        median_arr = np.nanmedian(time_diff_arr, axis=0)
-        median_arr[median_arr==np.nan] = SR_FILL
-        saveGeoTiff(filename=out_revisit_clear, data=median_arr, template_file=img_list[0], access_type=access_type)
-        # preproccess(out_revisit_clear, factor=1/33)
+    # ---------------------------------------------------------
+    # Find and sort HLS images
+    # ---------------------------------------------------------
+    img_list = download_tile(
+        tile=tile,
+        start_date=start_date,
+        end_date=end_date,
+        save_dir=save_dir,
+        search_source=search_source,
+        access_type=access_type,
+    )
 
-        del median_arr, time_diff_arr#, time_diff_arr_ma
-        ## save obs count file
-        saveGeoTiff(filename=out_num_all, data=da.sum(~time_diff_mask, axis=0), template_file=img_list[0], access_type=access_type)
-        saveGeoTiff(filename=out_num_clear, data=da.sum(~time_diff_mask_clear, axis=0), template_file=img_list[0], access_type=access_type)
-        # preproccess(out_num_all, factor=1/33)
-        # preproccess(out_num_clear, factor=1/33)
-        ## save monthly clear count file
-        for i in range(12):
-            out_name = os.path.join(save_dir, f'HLS.{tile}.{start_date[:4]}M{i+1:02d}.num.obs.clear.tif')
-            print('Monthly clear obs count for month ', i+1)
-            saveGeoTiff(filename=out_name, data=clear_mask_monthly[i, :, :], template_file=img_list[0], access_type=access_type)
-            # preproccess(out_name, factor=1/33)
+    if not img_list:
+        print(f"No images found for tile {tile}.")
+        return
+
+    # Parse acquisition dates from the HLS filename.
+    def get_date(path):
+        filename = os.path.basename(path)
+        date_str = filename.split(".")[3][:7]
+        return datetime.strptime(date_str, "%Y%j")
+
+    # Remove duplicate paths and sort chronologically.
+    img_list = list(set(img_list))
+    img_list.sort(key=get_date)
+    dates = [get_date(path) for path in img_list]
+
+    tile = os.path.basename(img_list[0]).split(".")[2]
+    n_img = len(img_list)
+
+    with rio.open(img_list[0]) as ds:
+        nrow, ncol = ds.height, ds.width
+
+    shape = (nrow, ncol)
+
+    # Integer days make per-pixel interval calculations efficient.
+    reference_date = datetime(1970, 1, 1)
+    days = np.asarray(
+        [(date - reference_date).days for date in dates],
+        dtype=np.int32,
+    )
+
+    # ---------------------------------------------------------
+    # Initialize per-pixel state
+    # ---------------------------------------------------------
+    previous_date_all = np.zeros(shape, dtype=np.int32)
+    previous_date_clear = np.zeros(shape, dtype=np.int32)
+
+    has_previous_all = np.zeros(shape, dtype=bool)
+    has_previous_clear = np.zeros(shape, dtype=bool)
+
+    num_obs_all = np.zeros(shape, dtype=np.uint32)
+    num_obs_clear = np.zeros(shape, dtype=np.uint32)
+
+    # Monthly clear-observation counts.
+    clear_mask_monthly = np.zeros(
+        (12, nrow, ncol), dtype=np.uint16
+    )
+
+    # Exact median requires retaining interval values.
+    intervals_all = []
+    intervals_clear = []
+
+    # ---------------------------------------------------------
+    # Process images in chronological order
+    # ---------------------------------------------------------
+    for i_img, (img_file, cur_date, day) in enumerate(
+        zip(img_list, dates, days)
+    ):
+        try:
+            with rio.open(img_file) as ds:
+                arr = ds.read(1)
+        except Exception as e:
+            print(f"Error loading image {img_file}: {e}")
+            # Do not update the previous dates. The next valid
+            # observation will span the skipped image.
+            continue
+
+        print(
+            f"Processing image {i_img + 1}/{n_img}: "
+            f"{cur_date:%Y-%m-%d}"
+        )
+
+        # Valid for all-observation calculations.
+        valid_all = arr != QA_FILL
+
+        # Valid for clear-sky calculations.
+        cloudy_or_invalid = mask_hls(
+            arr,
+            mask_list=["cloud", "adj_cloud", "cloud shadow"],
+        )
+        valid_clear = valid_all & ~cloudy_or_invalid
+
+        # Update observation counts.
+        num_obs_all += valid_all
+        num_obs_clear += valid_clear
+        clear_mask_monthly[cur_date.month - 1] += valid_clear
+
+        # -----------------------------------------------------
+        # All-observation intervals
+        # -----------------------------------------------------
+        matched_all = valid_all & has_previous_all
+
+        interval_all = np.full(
+            shape, np.nan, dtype=np.float32
+        )
+        interval_all[matched_all] = (
+            day - previous_date_all[matched_all]
+        )
+
+        intervals_all.append(interval_all)
+
+        # Update dates only where this image is valid.
+        previous_date_all[valid_all] = day
+        has_previous_all |= valid_all
+
+        # -----------------------------------------------------
+        # Clear-observation intervals
+        # -----------------------------------------------------
+        matched_clear = valid_clear & has_previous_clear
+
+        interval_clear = np.full(
+            shape, np.nan, dtype=np.float32
+        )
+        interval_clear[matched_clear] = (
+            day - previous_date_clear[matched_clear]
+        )
+
+        intervals_clear.append(interval_clear)
+
+        # Update dates only where this image is clear.
+        previous_date_clear[valid_clear] = day
+        has_previous_clear |= valid_clear
+
+        del arr, valid_all, cloudy_or_invalid, valid_clear
+
+    # ---------------------------------------------------------
+    # Calculate and save exact median revisit intervals
+    # ---------------------------------------------------------
+    def calculate_median(interval_layers):
+        if not interval_layers:
+            return np.full(shape, SR_FILL, dtype=np.float32)
+
+        # Stack intervals along the time axis.
+        interval_stack = np.stack(interval_layers, axis=0)
+
+        with np.errstate(all="ignore"):
+            median = np.nanmedian(interval_stack, axis=0)
+
+        # Pixels with fewer than two valid observations have no
+        # revisit interval and are assigned the fill value.
+        median = np.where(
+            np.isfinite(median), median, SR_FILL
+        ).astype(np.float32)
+
+        del interval_stack
+        return median
+
+    print("Calculating median revisit interval (all observations)...")
+    median_all = calculate_median(intervals_all)
+
+    saveGeoTiff(
+        filename=out_revisit_all,
+        data=median_all,
+        template_file=img_list[0],
+        access_type=access_type,
+    )
+
+    del median_all, intervals_all
+    gc.collect()
+
+    print("Calculating median revisit interval (clear observations)...")
+    median_clear = calculate_median(intervals_clear)
+
+    saveGeoTiff(
+        filename=out_revisit_clear,
+        data=median_clear,
+        template_file=img_list[0],
+        access_type=access_type,
+    )
+
+    del median_clear, intervals_clear
+    gc.collect()
+
+    # ---------------------------------------------------------
+    # Save observation counts
+    # ---------------------------------------------------------
+    saveGeoTiff(
+        filename=out_num_all,
+        data=num_obs_all,
+        template_file=img_list[0],
+        access_type=access_type,
+    )
+
+    saveGeoTiff(
+        filename=out_num_clear,
+        data=num_obs_clear,
+        template_file=img_list[0],
+        access_type=access_type,
+    )
+
+    # ---------------------------------------------------------
+    # Save monthly clear-observation counts
+    # ---------------------------------------------------------
+    for month in range(12):
+        out_name = os.path.join(
+            save_dir,
+            f"HLS.{tile}.{year}M{month + 1:02d}.num.obs.clear.tif",
+        )
+
+        print(f"Saving monthly clear count for month {month + 1}...")
+
+        saveGeoTiff(
+            filename=out_name,
+            data=clear_mask_monthly[month],
+            template_file=img_list[0],
+            access_type=access_type,
+        )
+
+    print(f"Finished processing tile {tile}, year {year}.")
+
 
 
 
